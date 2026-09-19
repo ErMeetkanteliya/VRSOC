@@ -11,6 +11,7 @@ import { analyzeAlertWithAi, chatWithAiAnalyst } from './server/aiEngine';
 import { registerClient, broadcastEvent } from './server/sse';
 import { getPublicAuthConfig, checkSupabaseConfig } from './server/supabase';
 import { requireAuth, getAuthContext, extractBearerToken } from './server/auth';
+import { requirePermission, requireAnyPermission, requireRole } from './server/authz';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -239,14 +240,10 @@ app.post('/api/auth/logout', (req, res) => {
 // -----------------------------------------------------------------------------
 
 // POST /api/organizations/key/rotate
-app.post('/api/organizations/key/rotate', requireAuth, async (req, res) => {
+app.post('/api/organizations/key/rotate', requireAuth, requirePermission('org:key:rotate'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
-
-    if (user.role !== 'Super Admin' && user.role !== 'Organization Admin') {
-      return res.status(403).json({ error: 'Only Organization Administrators can rotate the VRSOC security key.' });
-    }
+    const org = req.organization!;
+    const user = req.user!;
 
     const newKey = await db.rotateVrSocKey(org.id);
     await db.addAuditLog({
@@ -271,9 +268,9 @@ app.post('/api/organizations/key/rotate', requireAuth, async (req, res) => {
 });
 
 // GET /api/organizations/metrics
-app.get('/api/organizations/metrics', requireAuth, async (req, res) => {
+app.get('/api/organizations/metrics', requireAuth, requirePermission('metrics:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const env = (req.query.environment as string) || 'production';
     const metrics = await db.getRealMetrics(org.id, env);
     res.json({ metrics });
@@ -287,9 +284,9 @@ app.get('/api/organizations/metrics', requireAuth, async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // GET /api/agents
-app.get('/api/agents', requireAuth, async (req, res) => {
+app.get('/api/agents', requireAuth, requirePermission('agents:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const agents = await db.getAgents(org.id);
     res.json({ agents });
   } catch (err: any) {
@@ -298,11 +295,11 @@ app.get('/api/agents', requireAuth, async (req, res) => {
 });
 
 // GET /api/agents/:id
-app.get('/api/agents/:id', requireAuth, async (req, res) => {
+app.get('/api/agents/:id', requireAuth, requirePermission('agents:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const agent = await db.getAgentById(req.params.id);
-    if (!agent || agent.organizationId !== org.id) {
+    const org = req.organization!;
+    const agent = await db.getAgentById(req.params.id, org.id);
+    if (!agent) {
       return res.status(404).json({ error: 'Agent not found' });
     }
     const recentEvents = await db.getEndpointEvents(org.id, 50, agent.id);
@@ -313,16 +310,16 @@ app.get('/api/agents/:id', requireAuth, async (req, res) => {
 });
 
 // POST /api/agents/:id/revoke
-app.post('/api/agents/:id/revoke', requireAuth, async (req, res) => {
+app.post('/api/agents/:id/revoke', requireAuth, requirePermission('agents:revoke'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
-    const agent = await db.getAgentById(req.params.id);
-    if (!agent || agent.organizationId !== org.id) {
+    const org = req.organization!;
+    const user = req.user!;
+    const agent = await db.getAgentById(req.params.id, org.id);
+    if (!agent) {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
-    const updated = await db.revokeAgent(agent.id);
+    const updated = await db.revokeAgent(agent.id, org.id);
     await db.addAuditLog({
       organizationId: org.id,
       userId: user.id,
@@ -363,7 +360,7 @@ app.post('/api/agent/enroll', async (req, res) => {
         lastSeen: new Date().toISOString(),
         status: 'online',
         agentVersion: agentVersion || '1.4.0'
-      });
+      }, org.id);
       broadcastEvent(org.id, 'agent_updated', updated);
       return res.json({ agent: updated, agentToken: updated.agentToken });
     }
@@ -424,7 +421,7 @@ app.post('/api/agent/heartbeat', async (req, res) => {
       cpuUsage: typeof cpuUsage === 'number' ? cpuUsage : agent.cpuUsage,
       ramUsage: typeof ramUsage === 'number' ? ramUsage : agent.ramUsage,
       diskUsage: typeof diskUsage === 'number' ? diskUsage : agent.diskUsage
-    });
+    }, agent.organizationId);
 
     broadcastEvent(agent.organizationId, 'agent_heartbeat', {
       agentId: agent.id,
@@ -480,10 +477,10 @@ app.post('/api/agent/telemetry', async (req, res) => {
 });
 
 // POST /api/telemetry/simulate
-app.post('/api/telemetry/simulate', requireAuth, async (req, res) => {
+app.post('/api/telemetry/simulate', requireAuth, requirePermission('telemetry:simulate'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { scenario, agentId } = req.body;
 
     const agents = await db.getAgents(org.id);
@@ -618,9 +615,9 @@ app.get('/api/agent/script', (req, res) => {
 // -----------------------------------------------------------------------------
 
 // GET /api/detection-rules
-app.get('/api/detection-rules', requireAuth, async (req, res) => {
+app.get('/api/detection-rules', requireAuth, requirePermission('rules:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const rules = await db.getDetectionRules(org.id);
     res.json({ rules });
   } catch (err: any) {
@@ -629,13 +626,17 @@ app.get('/api/detection-rules', requireAuth, async (req, res) => {
 });
 
 // POST /api/detection-rules/:id/toggle
-app.post('/api/detection-rules/:id/toggle', requireAuth, async (req, res) => {
+app.post('/api/detection-rules/:id/toggle', requireAuth, requirePermission('rules:toggle'), async (req, res) => {
   try {
     const { enabled } = req.body;
-    const user = (req as any).user;
-    const org = (req as any).organization;
+    const user = req.user!;
+    const org = req.organization!;
 
-    await db.toggleDetectionRule(req.params.id, Boolean(enabled));
+    const updatedRule = await db.toggleDetectionRule(req.params.id, Boolean(enabled), org.id);
+    if (!updatedRule) {
+      return res.status(404).json({ error: 'Detection rule not found' });
+    }
+
     await db.addAuditLog({
       organizationId: org.id,
       userId: user.id,
@@ -654,10 +655,10 @@ app.post('/api/detection-rules/:id/toggle', requireAuth, async (req, res) => {
 });
 
 // POST /api/detection-rules
-app.post('/api/detection-rules', requireAuth, async (req, res) => {
+app.post('/api/detection-rules', requireAuth, requirePermission('rules:manage'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { name, description, severity, riskScore, category, mitreTactic, mitreTechniqueId, mitreTechniqueName, conditions, remediationSteps } = req.body;
 
     if (!name || !description || !mitreTechniqueId) {
@@ -704,9 +705,9 @@ app.post('/api/detection-rules', requireAuth, async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // GET /api/alerts
-app.get('/api/alerts', requireAuth, async (req, res) => {
+app.get('/api/alerts', requireAuth, requirePermission('alerts:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const env = (req.query.environment as string) || 'production';
     const alerts = await db.getAlerts(org.id, env);
     res.json({ alerts });
@@ -716,11 +717,11 @@ app.get('/api/alerts', requireAuth, async (req, res) => {
 });
 
 // GET /api/alerts/:id
-app.get('/api/alerts/:id', requireAuth, async (req, res) => {
+app.get('/api/alerts/:id', requireAuth, requirePermission('alerts:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const alert = await db.getAlertById(req.params.id);
-    if (!alert || alert.organizationId !== org.id) {
+    const org = req.organization!;
+    const alert = await db.getAlertById(req.params.id, org.id);
+    if (!alert) {
       return res.status(404).json({ error: 'Alert not found' });
     }
     res.json({ alert });
@@ -730,10 +731,10 @@ app.get('/api/alerts/:id', requireAuth, async (req, res) => {
 });
 
 // PATCH /api/alerts/:id/status
-app.patch('/api/alerts/:id/status', requireAuth, async (req, res) => {
+app.patch('/api/alerts/:id/status', requireAuth, requirePermission('alerts:update_status'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { status } = req.body;
 
     const validStatuses = ['open', 'investigating', 'contained', 'resolved', 'false_positive'];
@@ -741,12 +742,12 @@ app.patch('/api/alerts/:id/status', requireAuth, async (req, res) => {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
 
-    const alert = await db.getAlertById(req.params.id);
-    if (!alert || alert.organizationId !== org.id) {
+    const alert = await db.getAlertById(req.params.id, org.id);
+    if (!alert) {
       return res.status(404).json({ error: 'Alert not found' });
     }
 
-    const updated = await db.updateAlert(alert.id, { status });
+    const updated = await db.updateAlert(alert.id, { status }, org.id);
     await db.addAuditLog({
       organizationId: org.id,
       userId: user.id,
@@ -766,22 +767,22 @@ app.patch('/api/alerts/:id/status', requireAuth, async (req, res) => {
 });
 
 // POST /api/alerts/:id/comment
-app.post('/api/alerts/:id/comment', requireAuth, async (req, res) => {
+app.post('/api/alerts/:id/comment', requireAuth, requirePermission('alerts:comment'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { comment } = req.body;
 
     if (!comment || !comment.trim()) {
       return res.status(400).json({ error: 'Comment text cannot be empty' });
     }
 
-    const alert = await db.getAlertById(req.params.id);
-    if (!alert || alert.organizationId !== org.id) {
+    const alert = await db.getAlertById(req.params.id, org.id);
+    if (!alert) {
       return res.status(404).json({ error: 'Alert not found' });
     }
 
-    const updated = await db.addAlertComment(alert.id, user.id, user.fullName, comment.trim());
+    const updated = await db.addAlertComment(alert.id, user.id, user.fullName, comment.trim(), org.id);
     res.json({ alert: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to add comment' });
@@ -789,16 +790,16 @@ app.post('/api/alerts/:id/comment', requireAuth, async (req, res) => {
 });
 
 // POST /api/alerts/:id/ai-analyze
-app.post('/api/alerts/:id/ai-analyze', requireAuth, async (req, res) => {
+app.post('/api/alerts/:id/ai-analyze', requireAuth, requirePermission('alerts:ai_analyze'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const alert = await db.getAlertById(req.params.id);
-    if (!alert || alert.organizationId !== org.id) {
+    const org = req.organization!;
+    const alert = await db.getAlertById(req.params.id, org.id);
+    if (!alert) {
       return res.status(404).json({ error: 'Alert not found' });
     }
 
     const aiSummary = await analyzeAlertWithAi(alert);
-    const updated = await db.updateAlert(alert.id, { aiSummary });
+    const updated = await db.updateAlert(alert.id, { aiSummary }, org.id);
 
     res.json({ aiSummary, alert: updated });
   } catch (err: any) {
@@ -811,9 +812,9 @@ app.post('/api/alerts/:id/ai-analyze', requireAuth, async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // GET /api/incidents
-app.get('/api/incidents', requireAuth, async (req, res) => {
+app.get('/api/incidents', requireAuth, requirePermission('incidents:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const env = (req.query.environment as string) || 'production';
     const incidents = await db.getIncidents(org.id, env);
     res.json({ incidents });
@@ -823,14 +824,25 @@ app.get('/api/incidents', requireAuth, async (req, res) => {
 });
 
 // POST /api/incidents
-app.post('/api/incidents', requireAuth, async (req, res) => {
+app.post('/api/incidents', requireAuth, requirePermission('incidents:create'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { title, description, severity, priority, linkedAlertIds, environment } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({ error: 'Title and description are required.' });
+    }
+
+    // Verify all linkedAlertIds belong to the authenticated organization
+    let validLinkedAlertIds: string[] = [];
+    if (linkedAlertIds && Array.isArray(linkedAlertIds)) {
+      for (const alertId of linkedAlertIds) {
+        const found = await db.getAlertById(alertId, org.id);
+        if (found) {
+          validLinkedAlertIds.push(alertId);
+        }
+      }
     }
 
     const incident = await db.createIncident({
@@ -842,7 +854,7 @@ app.post('/api/incidents', requireAuth, async (req, res) => {
       priority: priority || 'P2',
       leadInvestigator: user.id,
       leadInvestigatorName: user.fullName,
-      linkedAlertIds: linkedAlertIds || [],
+      linkedAlertIds: validLinkedAlertIds,
       environment: environment || 'production'
     });
 
@@ -865,16 +877,16 @@ app.post('/api/incidents', requireAuth, async (req, res) => {
 });
 
 // GET /api/incidents/:id
-app.get('/api/incidents/:id', requireAuth, async (req, res) => {
+app.get('/api/incidents/:id', requireAuth, requirePermission('incidents:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const incident = await db.getIncidentById(req.params.id);
-    if (!incident || incident.organizationId !== org.id) {
+    const org = req.organization!;
+    const incident = await db.getIncidentById(req.params.id, org.id);
+    if (!incident) {
       return res.status(404).json({ error: 'Incident not found' });
     }
 
     const alertsList = await Promise.all(
-      incident.linkedAlertIds.map(id => db.getAlertById(id))
+      incident.linkedAlertIds.map(id => db.getAlertById(id, org.id))
     );
     const linkedAlerts = alertsList.filter(Boolean);
 
@@ -885,17 +897,17 @@ app.get('/api/incidents/:id', requireAuth, async (req, res) => {
 });
 
 // PATCH /api/incidents/:id
-app.patch('/api/incidents/:id', requireAuth, async (req, res) => {
+app.patch('/api/incidents/:id', requireAuth, requirePermission('incidents:update'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
-    const incident = await db.getIncidentById(req.params.id);
-    if (!incident || incident.organizationId !== org.id) {
+    const org = req.organization!;
+    const user = req.user!;
+    const incident = await db.getIncidentById(req.params.id, org.id);
+    if (!incident) {
       return res.status(404).json({ error: 'Incident not found' });
     }
 
     const updates = req.body;
-    const updated = await db.updateIncident(incident.id, updates);
+    const updated = await db.updateIncident(incident.id, updates, org.id);
 
     await db.addAuditLog({
       organizationId: org.id,
@@ -915,15 +927,15 @@ app.patch('/api/incidents/:id', requireAuth, async (req, res) => {
 });
 
 // POST /api/incidents/:id/task
-app.post('/api/incidents/:id/task', requireAuth, async (req, res) => {
+app.post('/api/incidents/:id/task', requireAuth, requirePermission('incidents:manage_tasks'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const { title } = req.body;
-    const incident = await db.getIncidentById(req.params.id);
-    if (!incident || incident.organizationId !== org.id) {
+    const incident = await db.getIncidentById(req.params.id, org.id);
+    if (!incident) {
       return res.status(404).json({ error: 'Incident not found' });
     }
-    const updated = await db.addIncidentTask(incident.id, title);
+    const updated = await db.addIncidentTask(incident.id, title, undefined, org.id);
     res.json({ incident: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to add incident task' });
@@ -931,15 +943,15 @@ app.post('/api/incidents/:id/task', requireAuth, async (req, res) => {
 });
 
 // PATCH /api/incidents/:id/task/:taskId
-app.patch('/api/incidents/:id/task/:taskId', requireAuth, async (req, res) => {
+app.patch('/api/incidents/:id/task/:taskId', requireAuth, requirePermission('incidents:manage_tasks'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const { completed } = req.body;
-    const incident = await db.getIncidentById(req.params.id);
-    if (!incident || incident.organizationId !== org.id) {
+    const incident = await db.getIncidentById(req.params.id, org.id);
+    if (!incident) {
       return res.status(404).json({ error: 'Incident not found' });
     }
-    const updated = await db.toggleIncidentTask(incident.id, req.params.taskId, Boolean(completed));
+    const updated = await db.toggleIncidentTask(incident.id, req.params.taskId, Boolean(completed), org.id);
     res.json({ incident: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to toggle incident task' });
@@ -947,12 +959,12 @@ app.patch('/api/incidents/:id/task/:taskId', requireAuth, async (req, res) => {
 });
 
 // POST /api/incidents/:id/timeline
-app.post('/api/incidents/:id/timeline', requireAuth, async (req, res) => {
+app.post('/api/incidents/:id/timeline', requireAuth, requirePermission('incidents:manage_timeline'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const { title, description, type, evidenceState } = req.body;
-    const incident = await db.getIncidentById(req.params.id);
-    if (!incident || incident.organizationId !== org.id) {
+    const incident = await db.getIncidentById(req.params.id, org.id);
+    if (!incident) {
       return res.status(404).json({ error: 'Incident not found' });
     }
 
@@ -962,7 +974,7 @@ app.post('/api/incidents/:id/timeline', requireAuth, async (req, res) => {
       description: description || '',
       type: type || 'observation',
       evidenceState: evidenceState || 'CONFIRMED'
-    });
+    }, org.id);
     res.json({ incident: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to add timeline item' });
@@ -970,17 +982,17 @@ app.post('/api/incidents/:id/timeline', requireAuth, async (req, res) => {
 });
 
 // POST /api/incidents/:id/note
-app.post('/api/incidents/:id/note', requireAuth, async (req, res) => {
+app.post('/api/incidents/:id/note', requireAuth, requirePermission('incidents:comment'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { note } = req.body;
-    const incident = await db.getIncidentById(req.params.id);
-    if (!incident || incident.organizationId !== org.id) {
+    const incident = await db.getIncidentById(req.params.id, org.id);
+    if (!incident) {
       return res.status(404).json({ error: 'Incident not found' });
     }
 
-    const updated = await db.addIncidentNote(incident.id, user.id, user.fullName, note);
+    const updated = await db.addIncidentNote(incident.id, user.id, user.fullName, note, org.id);
     res.json({ incident: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to add incident note' });
@@ -992,10 +1004,10 @@ app.post('/api/incidents/:id/note', requireAuth, async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // POST /api/phishguard/scan
-app.post('/api/phishguard/scan', requireAuth, async (req, res) => {
+app.post('/api/phishguard/scan', requireAuth, requirePermission('phishguard:scan'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { url } = req.body;
 
     if (!url || !url.trim()) {
@@ -1034,14 +1046,14 @@ app.post('/api/phishguard/scan', requireAuth, async (req, res) => {
 });
 
 // POST /api/phishguard/promote-to-alert
-app.post('/api/phishguard/promote-to-alert', requireAuth, async (req, res) => {
+app.post('/api/phishguard/promote-to-alert', requireAuth, requirePermission('phishguard:promote'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { scanId } = req.body;
 
-    const scan = await db.getPhishingScanById(scanId);
-    if (!scan || scan.organizationId !== org.id) {
+    const scan = await db.getPhishingScanById(scanId, org.id);
+    if (!scan) {
       return res.status(404).json({ error: 'Phishing scan record not found' });
     }
 
@@ -1101,9 +1113,9 @@ app.post('/api/phishguard/promote-to-alert', requireAuth, async (req, res) => {
 });
 
 // GET /api/phishguard/scans
-app.get('/api/phishguard/scans', requireAuth, async (req, res) => {
+app.get('/api/phishguard/scans', requireAuth, requirePermission('phishguard:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const scans = await db.getPhishingScans(org.id);
     res.json({ scans });
   } catch (err: any) {
@@ -1116,9 +1128,9 @@ app.get('/api/phishguard/scans', requireAuth, async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // POST /api/ai/chat
-app.post('/api/ai/chat', requireAuth, async (req, res) => {
+app.post('/api/ai/chat', requireAuth, requirePermission('ai:chat'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const { message, context } = req.body;
 
     if (!message || !message.trim()) {
@@ -1137,9 +1149,9 @@ app.post('/api/ai/chat', requireAuth, async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // GET /api/indicators
-app.get('/api/indicators', requireAuth, async (req, res) => {
+app.get('/api/indicators', requireAuth, requirePermission('indicators:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const indicators = await db.getIndicators(org.id);
     res.json({ indicators });
   } catch (err: any) {
@@ -1148,10 +1160,10 @@ app.get('/api/indicators', requireAuth, async (req, res) => {
 });
 
 // POST /api/indicators
-app.post('/api/indicators', requireAuth, async (req, res) => {
+app.post('/api/indicators', requireAuth, requirePermission('indicators:manage'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { type, value, threatActor, confidence, tags, description } = req.body;
 
     if (!type || !value) {
@@ -1186,9 +1198,9 @@ app.post('/api/indicators', requireAuth, async (req, res) => {
 });
 
 // GET /api/audit-logs
-app.get('/api/audit-logs', requireAuth, async (req, res) => {
+app.get('/api/audit-logs', requireAuth, requirePermission('audit:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const logs = await db.getAuditLogs(org.id);
     res.json({ logs });
   } catch (err: any) {
@@ -1201,21 +1213,21 @@ app.get('/api/audit-logs', requireAuth, async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // POST /api/reports/generate
-app.post('/api/reports/generate', requireAuth, async (req, res) => {
+app.post('/api/reports/generate', requireAuth, requirePermission('reports:generate'), async (req, res) => {
   try {
-    const org = (req as any).organization;
-    const user = (req as any).user;
+    const org = req.organization!;
+    const user = req.user!;
     const { reportType, targetId } = req.body;
 
     let title = '';
     let content: Record<string, any> = {};
 
     if (reportType === 'incident' && targetId) {
-      const incident = await db.getIncidentById(targetId);
-      if (!incident || incident.organizationId !== org.id) {
+      const incident = await db.getIncidentById(targetId, org.id);
+      if (!incident) {
         return res.status(404).json({ error: 'Incident not found' });
       }
-      const linkedAlerts = (await Promise.all(incident.linkedAlertIds.map(id => db.getAlertById(id)))).filter(Boolean);
+      const linkedAlerts = (await Promise.all(incident.linkedAlertIds.map(id => db.getAlertById(id, org.id)))).filter(Boolean);
       title = `Incident Investigation Report: ${incident.id} — ${incident.title}`;
       content = {
         incidentId: incident.id,
@@ -1283,13 +1295,27 @@ app.post('/api/reports/generate', requireAuth, async (req, res) => {
 });
 
 // GET /api/reports
-app.get('/api/reports', requireAuth, async (req, res) => {
+app.get('/api/reports', requireAuth, requirePermission('reports:read'), async (req, res) => {
   try {
-    const org = (req as any).organization;
+    const org = req.organization!;
     const reports = await db.getReports(org.id);
     res.json({ reports });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to fetch reports' });
+  }
+});
+
+// GET /api/reports/:id
+app.get('/api/reports/:id', requireAuth, requirePermission('reports:read'), async (req, res) => {
+  try {
+    const org = req.organization!;
+    const report = await db.getReportById(req.params.id, org.id);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    res.json({ report });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch report' });
   }
 });
 

@@ -690,12 +690,15 @@ export class Database {
     return (data || []).map(a => this.mapAgent(a));
   }
 
-  public async getAgentById(id: string): Promise<Agent | null> {
-    const { data, error } = await this.client
+  public async getAgentById(id: string, orgId?: string): Promise<Agent | null> {
+    let query = this.client
       .from('agents')
       .select('*')
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query.maybeSingle();
     if (error) throw new Error(`Database error fetching agent by id: ${error.message}`);
     return data ? this.mapAgent(data) : null;
   }
@@ -733,7 +736,7 @@ export class Database {
     return this.mapAgent(data);
   }
 
-  public async updateAgent(id: string, updates: Partial<Agent>): Promise<Agent> {
+  public async updateAgent(id: string, updates: Partial<Agent>, orgId?: string): Promise<Agent> {
     const row: Record<string, any> = { updated_at: new Date().toISOString() };
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.ipAddress !== undefined) row.ip_address = updates.ipAddress;
@@ -747,27 +750,37 @@ export class Database {
     if (updates.health !== undefined) row.health = updates.health;
     if (updates.agentVersion !== undefined) row.agent_version = updates.agentVersion;
 
-    const { data, error } = await this.client
+    let query = this.client
       .from('agents')
       .update(row)
-      .eq('id', id)
+      .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query
       .select()
-      .single();
+      .maybeSingle();
     if (error) throw new Error(`Database error updating agent: ${error.message}`);
+    if (!data) throw new Error('Agent not found or cross-tenant access denied');
     return this.mapAgent(data);
   }
 
-  public async revokeAgent(id: string): Promise<Agent> {
-    const { data, error } = await this.client
+  public async revokeAgent(id: string, orgId?: string): Promise<Agent> {
+    let query = this.client
       .from('agents')
       .update({
         status: 'revoked',
         updated_at: new Date().toISOString()
       })
-      .eq('id', id)
+      .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query
       .select()
-      .single();
+      .maybeSingle();
     if (error) throw new Error(`Database error revoking agent: ${error.message}`);
+    if (!data) throw new Error('Agent not found or cross-tenant access denied');
     return this.mapAgent(data);
   }
 
@@ -822,17 +835,26 @@ export class Database {
     return data.map(r => this.mapRule(r));
   }
 
-  public async getDetectionRuleById(id: string): Promise<DetectionRule | null> {
-    const { data, error } = await this.client
+  public async getDetectionRuleById(id: string, orgId?: string): Promise<DetectionRule | null> {
+    let query = this.client
       .from('detection_rules')
       .select('*')
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    if (orgId) {
+      query = query.or(`organization_id.eq.${orgId},organization_id.is.null`);
+    }
+    const { data, error } = await query.maybeSingle();
     if (error) throw new Error(`Database error fetching detection rule: ${error.message}`);
     return data ? this.mapRule(data) : null;
   }
 
-  public async toggleDetectionRule(id: string, enabled: boolean): Promise<DetectionRule | null> {
+  public async toggleDetectionRule(id: string, enabled: boolean, orgId?: string): Promise<DetectionRule | null> {
+    // If orgId is provided, verify it is either global or matches orgId
+    if (orgId) {
+      const existing = await this.getDetectionRuleById(id, orgId);
+      if (!existing) throw new Error('Detection rule not found or cross-tenant access denied');
+    }
+
     const { data, error } = await this.client
       .from('detection_rules')
       .update({ enabled })
@@ -890,12 +912,15 @@ export class Database {
     return alerts.map(a => this.mapAlert(a, comments?.filter(c => c.alert_id === a.id) || []));
   }
 
-  public async getAlertById(id: string): Promise<Alert | null> {
-    const { data: alert, error: alertError } = await this.client
+  public async getAlertById(id: string, orgId?: string): Promise<Alert | null> {
+    let query = this.client
       .from('alerts')
       .select('*')
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data: alert, error: alertError } = await query.maybeSingle();
     if (alertError) throw new Error(`Database error fetching alert by id: ${alertError.message}`);
     if (!alert) return null;
 
@@ -943,23 +968,32 @@ export class Database {
     return this.mapAlert(data, []);
   }
 
-  public async updateAlert(id: string, updates: Partial<Alert>): Promise<Alert> {
+  public async updateAlert(id: string, updates: Partial<Alert>, orgId?: string): Promise<Alert> {
     const row: Record<string, any> = { updated_at: new Date().toISOString() };
     if (updates.status !== undefined) row.status = updates.status;
     if (updates.aiSummary !== undefined) row.ai_summary = updates.aiSummary;
     if (updates.assignedTo !== undefined) row.assigned_to = updates.assignedTo;
 
-    const { error } = await this.client
+    let query = this.client
       .from('alerts')
       .update(row)
       .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query
+      .select()
+      .maybeSingle();
     if (error) throw new Error(`Database error updating alert: ${error.message}`);
-    const updated = await this.getAlertById(id);
-    if (!updated) throw new Error('Alert not found after update');
-    return updated;
+    if (!data) throw new Error('Alert not found or cross-tenant access denied');
+    
+    return this.getAlertById(id, orgId) as Promise<Alert>;
   }
 
-  public async addAlertComment(alertId: string, userId: string, userName: string, comment: string): Promise<Alert> {
+  public async addAlertComment(alertId: string, userId: string, userName: string, comment: string, orgId?: string): Promise<Alert> {
+    const alert = await this.getAlertById(alertId, orgId);
+    if (!alert) throw new Error('Alert not found or cross-tenant access denied');
+
     const { error } = await this.client
       .from('alert_comments')
       .insert({
@@ -968,7 +1002,7 @@ export class Database {
         comment: `[${userName}] ${comment}`
       });
     if (error) throw new Error(`Database error adding alert comment: ${error.message}`);
-    const updated = await this.getAlertById(alertId);
+    const updated = await this.getAlertById(alertId, orgId);
     if (!updated) throw new Error('Alert not found after adding comment');
     return updated;
   }
@@ -1003,12 +1037,15 @@ export class Database {
     ));
   }
 
-  public async getIncidentById(id: string): Promise<Incident | null> {
-    const { data: incident, error: incError } = await this.client
+  public async getIncidentById(id: string, orgId?: string): Promise<Incident | null> {
+    let query = this.client
       .from('incidents')
       .select('*')
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data: incident, error: incError } = await query.maybeSingle();
     if (incError) throw new Error(`Database error fetching incident by id: ${incError.message}`);
     if (!incident) return null;
 
@@ -1054,12 +1091,15 @@ export class Database {
       await this.client.from('incident_alerts').insert(alertRows);
     }
 
-    const created = await this.getIncidentById(incidentId);
+    const created = await this.getIncidentById(incidentId, incident.organizationId);
     if (!created) throw new Error('Incident not found after creation');
     return created;
   }
 
-  public async updateIncident(id: string, updates: Partial<Incident>): Promise<Incident> {
+  public async updateIncident(id: string, updates: Partial<Incident>, orgId?: string): Promise<Incident> {
+    const existing = await this.getIncidentById(id, orgId);
+    if (!existing) throw new Error('Incident not found or cross-tenant access denied');
+
     const row: Record<string, any> = { updated_at: new Date().toISOString() };
     if (updates.title !== undefined) row.title = updates.title;
     if (updates.description !== undefined) row.description = updates.description;
@@ -1069,10 +1109,14 @@ export class Database {
     if (updates.leadInvestigator !== undefined) row.lead_investigator = updates.leadInvestigator;
     if (updates.lessonsLearned !== undefined) row.lessons_learned = updates.lessonsLearned;
 
-    const { error } = await this.client
+    let query = this.client
       .from('incidents')
       .update(row)
       .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { error } = await query;
     if (error) throw new Error(`Database error updating incident: ${error.message}`);
 
     if (updates.linkedAlertIds !== undefined) {
@@ -1084,12 +1128,15 @@ export class Database {
       }
     }
 
-    const updated = await this.getIncidentById(id);
+    const updated = await this.getIncidentById(id, orgId);
     if (!updated) throw new Error('Incident not found after update');
     return updated;
   }
 
-  public async addIncidentTask(incidentId: string, title: string, assignedTo?: string): Promise<Incident> {
+  public async addIncidentTask(incidentId: string, title: string, assignedTo?: string, orgId?: string): Promise<Incident> {
+    const inc = await this.getIncidentById(incidentId, orgId);
+    if (!inc) throw new Error('Incident not found or cross-tenant access denied');
+
     const { error } = await this.client
       .from('incident_tasks')
       .insert({
@@ -1099,24 +1146,30 @@ export class Database {
         completed: false
       });
     if (error) throw new Error(`Database error adding incident task: ${error.message}`);
-    const updated = await this.getIncidentById(incidentId);
+    const updated = await this.getIncidentById(incidentId, orgId);
     if (!updated) throw new Error('Incident not found after task creation');
     return updated;
   }
 
-  public async toggleIncidentTask(incidentId: string, taskId: string, completed: boolean): Promise<Incident> {
+  public async toggleIncidentTask(incidentId: string, taskId: string, completed: boolean, orgId?: string): Promise<Incident> {
+    const inc = await this.getIncidentById(incidentId, orgId);
+    if (!inc) throw new Error('Incident not found or cross-tenant access denied');
+
     const { error } = await this.client
       .from('incident_tasks')
       .update({ completed })
       .eq('id', taskId)
       .eq('incident_id', incidentId);
     if (error) throw new Error(`Database error toggling task: ${error.message}`);
-    const updated = await this.getIncidentById(incidentId);
+    const updated = await this.getIncidentById(incidentId, orgId);
     if (!updated) throw new Error('Incident not found after task update');
     return updated;
   }
 
-  public async addIncidentTimelineItem(incidentId: string, item: { title: string; description?: string; type?: 'alert' | 'action' | 'observation' | 'containment'; evidenceState?: 'CONFIRMED' | 'INFERRED' | 'UNKNOWN'; timestamp?: string }): Promise<Incident> {
+  public async addIncidentTimelineItem(incidentId: string, item: { title: string; description?: string; type?: 'alert' | 'action' | 'observation' | 'containment'; evidenceState?: 'CONFIRMED' | 'INFERRED' | 'UNKNOWN'; timestamp?: string }, orgId?: string): Promise<Incident> {
+    const inc = await this.getIncidentById(incidentId, orgId);
+    if (!inc) throw new Error('Incident not found or cross-tenant access denied');
+
     const { error } = await this.client
       .from('incident_timeline')
       .insert({
@@ -1128,27 +1181,28 @@ export class Database {
         event_timestamp: item.timestamp || new Date().toISOString()
       });
     if (error) throw new Error(`Database error recording timeline item: ${error.message}`);
-    const updated = await this.getIncidentById(incidentId);
+    const updated = await this.getIncidentById(incidentId, orgId);
     if (!updated) throw new Error('Incident not found after timeline addition');
     return updated;
   }
 
-  public async addIncidentNote(incidentId: string, userId: string, userName: string, note: string): Promise<Incident> {
-    const inc = await this.getIncidentById(incidentId);
-    if (inc) {
-      const existingNotes = inc.notes || [];
-      const updatedNotes = [...existingNotes, { id: crypto.randomUUID(), userId, userName, note, createdAt: new Date().toISOString() }];
-      const currentReport = (inc as any).summaryReport || {};
-      const { error } = await this.client
-        .from('incidents')
-        .update({
-          summary_report: { ...currentReport, notes: updatedNotes, leadInvestigatorName: inc.leadInvestigatorName || 'Unassigned' },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', incidentId);
-      if (error) throw new Error(`Database error adding note: ${error.message}`);
-    }
-    const updated = await this.getIncidentById(incidentId);
+  public async addIncidentNote(incidentId: string, userId: string, userName: string, note: string, orgId?: string): Promise<Incident> {
+    const inc = await this.getIncidentById(incidentId, orgId);
+    if (!inc) throw new Error('Incident not found or cross-tenant access denied');
+
+    const existingNotes = inc.notes || [];
+    const updatedNotes = [...existingNotes, { id: crypto.randomUUID(), userId, userName, note, createdAt: new Date().toISOString() }];
+    const currentReport = (inc as any).summaryReport || {};
+    const { error } = await this.client
+      .from('incidents')
+      .update({
+        summary_report: { ...currentReport, notes: updatedNotes, leadInvestigatorName: inc.leadInvestigatorName || 'Unassigned' },
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', incidentId);
+    if (error) throw new Error(`Database error adding note: ${error.message}`);
+
+    const updated = await this.getIncidentById(incidentId, orgId);
     if (!updated) throw new Error('Incident not found after adding note');
     return updated;
   }
@@ -1185,12 +1239,15 @@ export class Database {
     return (data || []).map(s => this.mapPhishingScan(s));
   }
 
-  public async getPhishingScanById(id: string): Promise<PhishingScan | null> {
-    const { data, error } = await this.client
+  public async getPhishingScanById(id: string, orgId?: string): Promise<PhishingScan | null> {
+    let query = this.client
       .from('phishing_scans')
       .select('*')
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query.maybeSingle();
     if (error) throw new Error(`Database error fetching phishing scan: ${error.message}`);
     return data ? this.mapPhishingScan(data) : null;
   }
@@ -1283,6 +1340,19 @@ export class Database {
       .order('created_at', { ascending: false });
     if (error) throw new Error(`Database error fetching reports: ${error.message}`);
     return (data || []).map(r => this.mapReport(r));
+  }
+
+  public async getReportById(id: string, orgId?: string): Promise<Report | null> {
+    let query = this.client
+      .from('reports')
+      .select('*')
+      .eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query.maybeSingle();
+    if (error) throw new Error(`Database error fetching report: ${error.message}`);
+    return data ? this.mapReport(data) : null;
   }
 
   // --- Real Metrics Aggregator ---

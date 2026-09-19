@@ -1,3 +1,14 @@
+export type UserRole =
+  | 'Super Admin'
+  | 'Organization Admin'
+  | 'Instructor'
+  | 'SOC Analyst'
+  | 'Incident Responder'
+  | 'Threat Hunter'
+  | 'Auditor'
+  | 'Viewer'
+  | 'Student';
+
 export interface Profile {
   id: string;
   email: string;
@@ -6,7 +17,7 @@ export interface Profile {
   emailVerified: boolean;
   phoneVerified: boolean;
   mfaEnabled: boolean;
-  role: 'Super Admin' | 'Organization Admin' | 'Instructor' | 'SOC Analyst' | 'Incident Responder' | 'Threat Hunter' | 'Auditor' | 'Viewer' | 'Student';
+  role: UserRole;
   createdAt: string;
   updatedAt: string;
 }

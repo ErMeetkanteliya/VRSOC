@@ -10,6 +10,7 @@
     "seed:local": "tsx scripts/seed-local.ts",
     "verify:seed": "tsx scripts/verify-seed.ts",
     "verify:auth": "tsx scripts/verify-auth-hardening.ts",
+    "verify:rbac": "tsx scripts/verify-rbac.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

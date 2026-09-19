@@ -162,25 +162,25 @@ export async function chatWithAiAnalyst(
 ): Promise<string> {
   const client = getAiClient();
 
-  // Gather real context from database
+  // Gather real context from database strictly scoped to orgId
   let relevantData = '';
   if (context?.alertId) {
-    const alert = await db.getAlertById(context.alertId);
-    if (alert && alert.organizationId === orgId) {
+    const alert = await db.getAlertById(context.alertId, orgId);
+    if (alert) {
       relevantData += `CURRENT ALERT CONTEXT:\n${JSON.stringify(alert, null, 2)}\n\n`;
     }
   }
 
   if (context?.incidentId) {
-    const incident = await db.getIncidentById(context.incidentId);
-    if (incident && incident.organizationId === orgId) {
+    const incident = await db.getIncidentById(context.incidentId, orgId);
+    if (incident) {
       relevantData += `CURRENT INCIDENT CONTEXT:\n${JSON.stringify(incident, null, 2)}\n\n`;
     }
   }
 
   if (context?.agentId) {
-    const agent = await db.getAgentById(context.agentId);
-    if (agent && agent.organizationId === orgId) {
+    const agent = await db.getAgentById(context.agentId, orgId);
+    if (agent) {
       relevantData += `CURRENT AGENT HOST CONTEXT:\n${JSON.stringify(agent, null, 2)}\n\n`;
     }
   }
