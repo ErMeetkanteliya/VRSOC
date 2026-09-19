@@ -247,6 +247,7 @@ RULES:
 
 **Alert Investigation: ${targetedAlert.id} - ${targetedAlert.title}**
 - **CONFIRMED Evidence**:
+  - Status: ${targetedAlert.status.toUpperCase()} (Assigned: ${targetedAlert.assignedTo || 'Unassigned'})
   - Rule: ${targetedAlert.ruleId} (${targetedAlert.mitreTactic || 'Detection'})
   - Target Host: ${targetedAlert.hostname || 'Unknown Host'}
   - Severity / Risk: ${targetedAlert.severity.toUpperCase()} (Risk Score: ${targetedAlert.riskScore}/100)

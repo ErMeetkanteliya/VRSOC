@@ -168,6 +168,20 @@ class ApiClient {
     });
   }
 
+  async assignAlert(id: string, assignedTo: string | null) {
+    return this.request<{ alert: Alert }>(`/api/alerts/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ assignedTo })
+    });
+  }
+
+  async linkAlertIncident(id: string, incidentId: string) {
+    return this.request<{ alert: Alert; incident: Incident }>(`/api/alerts/${id}/link-incident`, {
+      method: 'POST',
+      body: JSON.stringify({ incidentId })
+    });
+  }
+
   async addAlertComment(id: string, comment: string) {
     return this.request<{ alert: Alert }>(`/api/alerts/${id}/comment`, {
       method: 'POST',

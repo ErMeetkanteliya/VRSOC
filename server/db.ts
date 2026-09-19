@@ -1046,14 +1046,102 @@ export class Database {
     return this.mapRule(data);
   }
 
-  // --- Alerts & Comments ---
-  public async getAlerts(orgId: string, environment = 'production'): Promise<Alert[]> {
-    const { data: alerts, error: alertError } = await this.client
-      .from('alerts')
+  public isValidAlertTransition(currentStatus: string, newStatus: string): boolean {
+    if (currentStatus === newStatus) return true; // Idempotent no-op
+
+    const transitions: Record<string, string[]> = {
+      open: ['investigating', 'contained', 'resolved', 'false_positive'],
+      investigating: ['open', 'contained', 'resolved', 'false_positive'],
+      contained: ['open', 'investigating', 'resolved', 'false_positive'],
+      resolved: ['open', 'investigating'], // Reopen
+      false_positive: ['open', 'investigating'] // Reopen
+    };
+
+    return (transitions[currentStatus] || []).includes(newStatus);
+  }
+
+  public async getMember(orgId: string, userId: string): Promise<OrganizationMember | null> {
+    const { data, error } = await this.client
+      .from('organization_members')
       .select('*')
       .eq('organization_id', orgId)
-      .eq('environment', environment)
-      .order('created_at', { ascending: false });
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      id: data.id,
+      organizationId: data.organization_id,
+      userId: data.user_id,
+      role: data.role,
+      createdAt: data.created_at
+    };
+  }
+
+  // --- Alerts & Comments ---
+  public async getAlerts(
+    orgId: string,
+    filtersOrEnv: string | {
+      environment?: string;
+      status?: string;
+      severity?: string;
+      agentId?: string;
+      ruleId?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = 'production'
+  ): Promise<Alert[]> {
+    let env = 'production';
+    let statusFilter: string | undefined;
+    let severityFilter: string | undefined;
+    let agentIdFilter: string | undefined;
+    let ruleIdFilter: string | undefined;
+    let searchFilter: string | undefined;
+    let limit = 100;
+    let offset = 0;
+
+    if (typeof filtersOrEnv === 'string') {
+      env = filtersOrEnv;
+    } else if (filtersOrEnv && typeof filtersOrEnv === 'object') {
+      env = filtersOrEnv.environment || 'production';
+      statusFilter = filtersOrEnv.status;
+      severityFilter = filtersOrEnv.severity;
+      agentIdFilter = filtersOrEnv.agentId;
+      ruleIdFilter = filtersOrEnv.ruleId;
+      searchFilter = filtersOrEnv.search;
+      if (filtersOrEnv.limit) limit = Math.min(500, Math.max(1, filtersOrEnv.limit));
+      if (filtersOrEnv.offset) offset = Math.max(0, filtersOrEnv.offset);
+    }
+
+    let query = this.client
+      .from('alerts')
+      .select('*')
+      .eq('organization_id', orgId);
+
+    if (env && env !== 'all') {
+      query = query.eq('environment', env);
+    }
+    if (statusFilter && statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
+    }
+    if (severityFilter && severityFilter !== 'all') {
+      query = query.eq('severity', severityFilter);
+    }
+    if (agentIdFilter) {
+      query = query.eq('agent_id', agentIdFilter);
+    }
+    if (ruleIdFilter) {
+      query = query.eq('rule_id', ruleIdFilter);
+    }
+    if (searchFilter) {
+      const sanitized = searchFilter.trim();
+      query = query.or(`title.ilike.%${sanitized}%,hostname.ilike.%${sanitized}%,rule_id.ilike.%${sanitized}%,id.ilike.%${sanitized}%`);
+    }
+
+    const { data: alerts, error: alertError } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
     if (alertError) throw new Error(`Database error fetching alerts: ${alertError.message}`);
     if (!alerts || alerts.length === 0) return [];
 

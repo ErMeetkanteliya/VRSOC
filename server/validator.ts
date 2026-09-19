@@ -153,8 +153,27 @@ export const alertStatusUpdateSchema = z.object({
   })
 });
 
+export const alertAssignSchema = z.object({
+  assignedTo: z.string().trim().max(100).nullable().optional()
+});
+
+export const alertLinkIncidentSchema = z.object({
+  incidentId: z.string().trim().min(1, 'Incident ID is required.').max(100)
+});
+
 export const alertCommentSchema = z.object({
   comment: z.string().trim().min(1, 'Comment text cannot be empty').max(2000)
+});
+
+export const alertFilterQuerySchema = z.object({
+  environment: z.enum(['production', 'training', 'test', 'all', 'staging']).optional(),
+  status: z.enum(['open', 'investigating', 'contained', 'resolved', 'false_positive', 'all']).optional(),
+  severity: z.enum(['informational', 'low', 'medium', 'high', 'critical', 'all']).optional(),
+  agentId: z.string().trim().max(100).optional(),
+  ruleId: z.string().trim().max(100).optional(),
+  search: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().min(1).max(500).optional(),
+  offset: z.coerce.number().min(0).optional()
 });
 
 // -----------------------------------------------------------------------------

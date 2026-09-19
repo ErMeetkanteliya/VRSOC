@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
-import { db, Profile } from './server/db';
+import { db, Profile, Alert } from './server/db';
 import { detectionEngine } from './server/detectionEngine';
 import { analyzeUrlWithPhishGuard } from './server/phishguard';
 import { analyzeAlertWithAi, chatWithAiAnalyst } from './server/aiEngine';
@@ -40,6 +40,9 @@ import {
   detectionRuleToggleSchema,
   detectionRuleCreateSchema,
   alertStatusUpdateSchema,
+  alertAssignSchema,
+  alertLinkIncidentSchema,
+  alertFilterQuerySchema,
   alertCommentSchema,
   incidentCreateSchema,
   incidentUpdateSchema,
@@ -896,12 +899,11 @@ app.get(
   '/api/alerts',
   requireAuth,
   requirePermission('alerts:read'),
-  validateRequest({ query: environmentQuerySchema }),
+  validateRequest({ query: alertFilterQuerySchema }),
   async (req, res, next) => {
     try {
       const org = req.organization!;
-      const env = (req.query.environment as string) || 'production';
-      const alerts = await db.getAlerts(org.id, env);
+      const alerts = await db.getAlerts(org.id, req.query as any);
       res.json({ alerts });
     } catch (err: any) {
       next(err);
@@ -946,7 +948,20 @@ app.patch(
         return res.status(404).json({ error: 'Alert not found' });
       }
 
-      const updated = await db.updateAlert(alert.id, { status }, org.id);
+      // Validate lifecycle transition
+      if (!db.isValidAlertTransition(alert.status, status)) {
+        return res.status(400).json({
+          error: `Invalid status transition from '${alert.status}' to '${status}'.`
+        });
+      }
+
+      // Auto-assign to current analyst if acknowledging an unassigned alert
+      const updatePayload: Partial<Alert> = { status };
+      if (status === 'investigating' && !alert.assignedTo) {
+        updatePayload.assignedTo = user.id;
+      }
+
+      const updated = await db.updateAlert(alert.id, updatePayload, org.id);
       await db.addAuditLog({
         organizationId: org.id,
         userId: user.id,
@@ -954,7 +969,52 @@ app.patch(
         action: 'UPDATE_ALERT_STATUS',
         targetType: 'alert',
         targetId: alert.id,
-        details: { oldStatus: alert.status, newStatus: status },
+        details: { oldStatus: alert.status, newStatus: status, assignedTo: updated.assignedTo },
+        ipAddress: req.ip
+      });
+
+      broadcastEvent(org.id, 'alert_updated', updated);
+      res.json({ alert: updated });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/alerts/:id/assign
+app.post(
+  '/api/alerts/:id/assign',
+  requireAuth,
+  requirePermission('alerts:update_status'),
+  validateRequest({ params: idParamSchema, body: alertAssignSchema }),
+  async (req, res, next) => {
+    try {
+      const org = req.organization!;
+      const user = req.user!;
+      const { assignedTo } = req.body;
+
+      const alert = await db.getAlertById(req.params.id, org.id);
+      if (!alert) {
+        return res.status(404).json({ error: 'Alert not found' });
+      }
+
+      // Verify target user belongs to same organization if assigning
+      if (assignedTo) {
+        const member = await db.getMember(org.id, assignedTo);
+        if (!member) {
+          return res.status(400).json({ error: 'Target assignee is not a member of this organization.' });
+        }
+      }
+
+      const updated = await db.updateAlert(alert.id, { assignedTo: assignedTo || null }, org.id);
+      await db.addAuditLog({
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        action: assignedTo ? 'ASSIGN_ALERT' : 'UNASSIGN_ALERT',
+        targetType: 'alert',
+        targetId: alert.id,
+        details: { previousAssignee: alert.assignedTo, newAssignee: assignedTo || null },
         ipAddress: req.ip
       });
 
@@ -984,7 +1044,64 @@ app.post(
       }
 
       const updated = await db.addAlertComment(alert.id, user.id, user.fullName, comment.trim(), org.id);
+      await db.addAuditLog({
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        action: 'ADD_ALERT_COMMENT',
+        targetType: 'alert',
+        targetId: alert.id,
+        details: { commentLength: comment.trim().length },
+        ipAddress: req.ip
+      });
+
+      broadcastEvent(org.id, 'alert_updated', updated);
       res.json({ alert: updated });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/alerts/:id/link-incident
+app.post(
+  '/api/alerts/:id/link-incident',
+  requireAuth,
+  requirePermission('incidents:create'),
+  validateRequest({ params: idParamSchema, body: alertLinkIncidentSchema }),
+  async (req, res, next) => {
+    try {
+      const org = req.organization!;
+      const user = req.user!;
+      const { incidentId } = req.body;
+
+      const alert = await db.getAlertById(req.params.id, org.id);
+      if (!alert) {
+        return res.status(404).json({ error: 'Alert not found' });
+      }
+
+      const incident = await db.getIncidentById(incidentId, org.id);
+      if (!incident) {
+        return res.status(404).json({ error: 'Incident not found in this organization.' });
+      }
+
+      const updatedIncident = await db.linkAlertToIncident(incidentId, alert.id, org.id);
+      const updatedAlert = await db.getAlertById(alert.id, org.id);
+
+      await db.addAuditLog({
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        action: 'LINK_ALERT_INCIDENT',
+        targetType: 'alert',
+        targetId: alert.id,
+        details: { incidentId, incidentTitle: incident.title },
+        ipAddress: req.ip
+      });
+
+      broadcastEvent(org.id, 'alert_updated', updatedAlert);
+      broadcastEvent(org.id, 'incident_updated', updatedIncident);
+      res.json({ alert: updatedAlert, incident: updatedIncident });
     } catch (err: any) {
       next(err);
     }
@@ -1008,6 +1125,7 @@ app.post(
       const aiSummary = await analyzeAlertWithAi(alert);
       const updated = await db.updateAlert(alert.id, { aiSummary }, org.id);
 
+      broadcastEvent(org.id, 'alert_updated', updated);
       res.json({ aiSummary, alert: updated });
     } catch (err: any) {
       next(err);
