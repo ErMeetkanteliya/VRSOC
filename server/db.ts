@@ -439,9 +439,6 @@ export const DEFAULT_DETECTION_RULES: DetectionRule[] = [
   }
 ];
 
-// In-memory OTP store for transient verification codes
-const otpCache: Record<string, { emailOtp?: string; phoneOtp?: string; expiresAt: number; attempts: number }> = {};
-
 export class Database {
   private get client() {
     if (!supabaseAdmin) {
@@ -453,39 +450,6 @@ export class Database {
   // Cryptographically secure 14-character hexadecimal VRSOC Key generator
   public generateVrSocKey(): string {
     return crypto.randomBytes(7).toString('hex').toUpperCase();
-  }
-
-  // --- OTP Verification Helpers ---
-  public setOtp(identifier: string, type: 'email' | 'phone', otp: string, expiryMinutes = 10) {
-    const key = identifier.toLowerCase();
-    const existing = otpCache[key] || { expiresAt: Date.now() + expiryMinutes * 60 * 1000, attempts: 0 };
-    existing.expiresAt = Date.now() + expiryMinutes * 60 * 1000;
-    if (type === 'email') existing.emailOtp = otp;
-    if (type === 'phone') existing.phoneOtp = otp;
-    otpCache[key] = existing;
-  }
-
-  public verifyOtp(identifier: string, type: 'email' | 'phone', otp: string): { success: boolean; message?: string } {
-    const key = identifier.toLowerCase();
-    const entry = otpCache[key];
-    if (!entry) {
-      return { success: false, message: 'No verification code found. Please request a new code.' };
-    }
-    if (Date.now() > entry.expiresAt) {
-      delete otpCache[key];
-      return { success: false, message: 'Verification code has expired. Please request a new one.' };
-    }
-    const expected = type === 'email' ? entry.emailOtp : entry.phoneOtp;
-    if (!expected || expected !== otp.trim()) {
-      entry.attempts = (entry.attempts || 0) + 1;
-      if (entry.attempts >= 5) {
-        delete otpCache[key];
-        return { success: false, message: 'Too many invalid attempts. Verification code invalidated.' };
-      }
-      return { success: false, message: 'Incorrect verification code. Please check and try again.' };
-    }
-    delete otpCache[key];
-    return { success: true };
   }
 
   // --- Organizations ---

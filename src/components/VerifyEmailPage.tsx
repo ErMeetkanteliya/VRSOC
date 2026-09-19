@@ -1,18 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mail, CheckCircle2, AlertCircle, RefreshCw, ArrowRight, Shield, ArrowLeft } from 'lucide-react';
-import { supabaseVerifyEmailOtp, supabaseResendEmailOtp, isSupabaseConfigured } from '../lib/supabase';
-import { api } from '../api';
+import { supabaseVerifyEmailOtp, supabaseResendEmailOtp } from '../lib/supabase';
 
 interface VerifyEmailPageProps {
   email: string;
-  hintOtp?: string;
   onVerified: (email: string) => void;
   onBackToLogin: () => void;
 }
 
 export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({
   email,
-  hintOtp,
   onVerified,
   onBackToLogin,
 }) => {
@@ -87,11 +84,7 @@ export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({
     setError(null);
     setLoading(true);
     try {
-      if (isSupabaseConfigured()) {
-        await supabaseVerifyEmailOtp(email, otpCode);
-      } else {
-        await api.verifyEmailOtp(otpCode);
-      }
+      await supabaseVerifyEmailOtp(email, otpCode);
       setSuccess(true);
       setTimeout(() => {
         onVerified(email);
@@ -119,17 +112,8 @@ export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({
     setError(null);
     setResendNotice(null);
     try {
-      if (isSupabaseConfigured()) {
-        await supabaseResendEmailOtp(email);
-        setResendNotice('New verification code sent to your email.');
-      } else {
-        const res = await api.resendEmailOtp();
-        if (res.emailOtp) {
-          setResendNotice(`Verification code dispatched. OTP: ${res.emailOtp}`);
-        } else {
-          setResendNotice(res.devHint || res.message || 'New verification code dispatched.');
-        }
-      }
+      await supabaseResendEmailOtp(email);
+      setResendNotice('New verification code sent to your email.');
       setCooldown(60);
       setTimeout(() => setResendNotice(null), 6000);
     } catch (err: any) {
@@ -166,26 +150,6 @@ export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({
           <span className="truncate">{email}</span>
           <span className="text-[10px] text-zinc-500 shrink-0">E-MAIL OTP</span>
         </div>
-
-        {hintOtp && !success && (
-          <div className="p-3 rounded bg-zinc-950 border border-emerald-500/30 text-zinc-300 text-xs flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Verification OTP: <strong className="font-mono text-emerald-400 text-sm tracking-widest">{hintOtp}</strong></span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                const arr = hintOtp.slice(0, 6).split('');
-                setDigits(arr);
-                triggerVerification(hintOtp.slice(0, 6));
-              }}
-              className="px-2.5 py-1 rounded bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 text-[11px] text-emerald-300 font-medium transition-colors"
-            >
-              Auto-fill & Verify
-            </button>
-          </div>
-        )}
 
         {error && (
           <div className="p-3 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">

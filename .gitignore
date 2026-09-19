@@ -6,11 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
-supabase/.temp/node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
+
+# Supabase local generated runtime files
+supabase/.temp/
+supabase/.branches/

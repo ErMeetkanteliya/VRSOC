@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Phone, CheckCircle2, AlertCircle, RefreshCw, ArrowRight, Shield, ArrowLeft, Send } from 'lucide-react';
-import { supabaseVerifyPhoneOtp, supabaseSendPhoneOtp, formatToE164, isSupabaseConfigured } from '../lib/supabase';
-import { api } from '../api';
+import { supabaseVerifyPhoneOtp, supabaseSendPhoneOtp, formatToE164 } from '../lib/supabase';
 
 interface VerifyPhonePageProps {
   initialPhone: string;
-  hintOtp?: string;
   onVerified: (phone: string) => void;
   onSkip: () => void;
   onBack: () => void;
@@ -13,14 +11,13 @@ interface VerifyPhonePageProps {
 
 export const VerifyPhonePage: React.FC<VerifyPhonePageProps> = ({
   initialPhone,
-  hintOtp,
   onVerified,
   onSkip,
   onBack,
 }) => {
   const [phoneNumber, setPhoneNumber] = useState(initialPhone || '');
   const [isEditingPhone, setIsEditingPhone] = useState(!initialPhone);
-  const [smsSent, setSmsSent] = useState(Boolean(initialPhone || hintOtp));
+  const [smsSent, setSmsSent] = useState(Boolean(initialPhone));
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [sendingSms, setSendingSms] = useState(false);
@@ -49,7 +46,7 @@ export const VerifyPhonePage: React.FC<VerifyPhonePageProps> = ({
 
   const handleSendSms = async () => {
     const formatted = formatToE164(phoneNumber);
-    if (!formatted && isSupabaseConfigured()) {
+    if (!formatted) {
       setError('Please provide a valid phone number with international country code (e.g. +14155552671).');
       return;
     }
@@ -58,17 +55,8 @@ export const VerifyPhonePage: React.FC<VerifyPhonePageProps> = ({
     setError(null);
     setNotice(null);
     try {
-      if (isSupabaseConfigured()) {
-        await supabaseSendPhoneOtp(formatted);
-        setNotice(`Verification code dispatched via SMS to ${formatted}`);
-      } else {
-        const res = await api.resendPhoneOtp();
-        if (res.phoneOtp) {
-          setNotice(`Verification code dispatched. OTP: ${res.phoneOtp}`);
-        } else {
-          setNotice(res.devHint || res.message || `Verification code dispatched to ${formatted || phoneNumber}`);
-        }
-      }
+      await supabaseSendPhoneOtp(formatted);
+      setNotice(`Verification code dispatched via SMS to ${formatted}`);
       setSmsSent(true);
       setIsEditingPhone(false);
       setCooldown(60);
@@ -126,20 +114,12 @@ export const VerifyPhonePage: React.FC<VerifyPhonePageProps> = ({
     setError(null);
     setLoading(true);
     try {
-      if (isSupabaseConfigured()) {
-        const formatted = formatToE164(phoneNumber);
-        await supabaseVerifyPhoneOtp(formatted, otpCode);
-        setSuccess(true);
-        setTimeout(() => {
-          onVerified(formatted);
-        }, 1000);
-      } else {
-        await api.verifyPhoneOtp(otpCode);
-        setSuccess(true);
-        setTimeout(() => {
-          onVerified(phoneNumber);
-        }, 1000);
-      }
+      const formatted = formatToE164(phoneNumber);
+      await supabaseVerifyPhoneOtp(formatted, otpCode);
+      setSuccess(true);
+      setTimeout(() => {
+        onVerified(formatted);
+      }, 1000);
     } catch (err: any) {
       setError(err.message || 'Invalid or expired SMS OTP verification code.');
     } finally {
@@ -181,26 +161,6 @@ export const VerifyPhonePage: React.FC<VerifyPhonePageProps> = ({
       </div>
 
       <div className="space-y-4 text-xs">
-        {hintOtp && !success && (
-          <div className="p-3 rounded bg-zinc-950 border border-emerald-500/30 text-zinc-300 text-xs flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>SMS OTP Code: <strong className="font-mono text-emerald-400 text-sm tracking-widest">{hintOtp}</strong></span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                const arr = hintOtp.slice(0, 6).split('');
-                setDigits(arr);
-                triggerVerification(hintOtp.slice(0, 6));
-              }}
-              className="px-2.5 py-1 rounded bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 text-[11px] text-emerald-300 font-medium transition-colors"
-            >
-              Auto-fill & Verify
-            </button>
-          </div>
-        )}
-
         {error && (
           <div className="p-3 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />

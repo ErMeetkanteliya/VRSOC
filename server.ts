@@ -9,7 +9,8 @@ import { detectionEngine } from './server/detectionEngine';
 import { analyzeUrlWithPhishGuard } from './server/phishguard';
 import { analyzeAlertWithAi, chatWithAiAnalyst } from './server/aiEngine';
 import { registerClient, broadcastEvent } from './server/sse';
-import { verifySupabaseToken, getPublicAuthConfig, checkSupabaseConfig } from './server/supabase';
+import { getPublicAuthConfig, checkSupabaseConfig } from './server/supabase';
+import { requireAuth, getAuthContext, extractBearerToken } from './server/auth';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -17,90 +18,19 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 app.use(express.json());
 app.use(cookieParser());
 
-// Authentication Middleware with Supabase JWT support & local fallback
-async function getAuthContext(req: express.Request) {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = (authHeader && authHeader.startsWith('Bearer '))
-      ? authHeader.substring(7)
-      : req.cookies?.vrsoc_session;
-
-    if (!token) return null;
-
-    // 1. Try Supabase verification first
-    const supabaseUser = await verifySupabaseToken(token);
-    if (supabaseUser) {
-      let profile = (await db.getProfileById(supabaseUser.id)) || (supabaseUser.email ? await db.getProfileByEmail(supabaseUser.email) : null);
-      if (!profile && supabaseUser.email) {
-        profile = await db.createProfile(
-          supabaseUser.email,
-          supabaseUser.user_metadata?.full_name || supabaseUser.email.split('@')[0],
-          supabaseUser.phone || supabaseUser.user_metadata?.phone_number,
-          'SOC Analyst',
-          supabaseUser.id,
-          {
-            emailVerified: Boolean(supabaseUser.email_confirmed_at),
-            phoneVerified: Boolean(supabaseUser.phone_confirmed_at),
-            mfaEnabled: Boolean(supabaseUser.factors && supabaseUser.factors.length > 0)
-          }
-        );
-      } else if (profile) {
-        const updates: Partial<Profile> = {};
-        if (supabaseUser.email_confirmed_at && !profile.emailVerified) updates.emailVerified = true;
-        if (supabaseUser.phone_confirmed_at && !profile.phoneVerified) updates.phoneVerified = true;
-        if (Object.keys(updates).length > 0) {
-          profile = await db.updateProfile(profile.id, updates);
-        }
-      }
-
-      if (profile) {
-        const orgs = await db.getUserOrganizations(profile.id);
-        const organization = orgs[0] || null;
-        return {
-          profile,
-          organization,
-          sessionToken: token,
-          supabaseUser
-        };
-      }
-    }
-
-    // 2. Fallback to local session token
-    return await db.getSession(token);
-  } catch (err) {
-    console.error('Error in getAuthContext:', err);
-    return null;
-  }
-}
-
-async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
-  try {
-    const session = await getAuthContext(req);
-    if (!session) {
-      return res.status(401).json({ error: 'Authentication required. Please sign in.' });
-    }
-    (req as any).user = session.profile;
-    (req as any).organization = session.organization;
-    (req as any).session = session;
-    next();
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Authentication check failed' });
-  }
-}
-
 // -----------------------------------------------------------------------------
-// AUTHENTICATION ROUTES
+// AUTHENTICATION ROUTES (SINGLE AUTHORITY: SUPABASE AUTH)
 // -----------------------------------------------------------------------------
 
-// GET /api/auth/config
+// GET /api/auth/config - Public configuration for client-side Supabase SDK
 app.get('/api/auth/config', (req, res) => {
   res.json(getPublicAuthConfig());
 });
 
-// POST /api/auth/complete-onboarding
+// POST /api/auth/complete-onboarding - Requires authenticated Supabase session
 app.post('/api/auth/complete-onboarding', requireAuth, async (req, res) => {
   try {
-    const user = (req as any).user;
+    const user = req.user!;
     const { organizationName, fullName, phoneNumber } = req.body;
 
     if (!organizationName || !organizationName.trim()) {
@@ -159,7 +89,7 @@ app.post('/api/auth/complete-onboarding', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/auth/signup
+// POST /api/auth/signup - Identity created via Supabase Auth
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { fullName, email, phoneNumber, organizationName } = req.body;
@@ -167,248 +97,141 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ error: 'Full name, email, and organization name are required.' });
     }
 
-    const existingUser = await db.getProfileByEmail(email);
-    if (existingUser) {
-      return res.status(409).json({ error: 'An account with this email already exists.' });
+    const auth = await getAuthContext(req);
+    if (auth) {
+      const org = await db.createOrganization(organizationName.trim());
+      const updatedProfile = await db.updateProfile(auth.profile.id, {
+        fullName: fullName.trim(),
+        phoneNumber: phoneNumber ? phoneNumber.trim() : auth.profile.phoneNumber,
+        role: 'Organization Admin'
+      });
+      await db.addMember(org.id, updatedProfile.id, 'Organization Admin');
+
+      return res.status(201).json({
+        message: 'Organization registered successfully.',
+        profile: updatedProfile,
+        organization: org,
+        vrSocKey: org.vrSocKey
+      });
     }
 
-    // 1. Create Organization with unique 14-char hex key
-    const org = await db.createOrganization(organizationName);
-
-    // 2. Create User Profile
-    const profile = await db.createProfile(
-      email,
-      fullName,
-      phoneNumber,
-      'Organization Admin',
-      undefined,
-      { emailVerified: false, phoneVerified: false, mfaEnabled: false }
-    );
-
-    // 3. Link Member to Organization
-    await db.addMember(org.id, profile.id, 'Organization Admin');
-
-    // 4. Generate email and phone OTPs
-    const emailOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    const phoneOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    db.setOtp(email.toLowerCase(), 'email', emailOtp, 10);
-    if (phoneNumber) {
-      db.setOtp(phoneNumber, 'phone', phoneOtp, 10);
-    }
-
-    // 5. Create Session
-    const session = await db.createSession(profile.id, org.id, req.ip, req.headers['user-agent'] as string);
-
-    // Set cookie
-    res.cookie('vrsoc_session', session.sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
-    await db.addAuditLog({
-      organizationId: org.id,
-      userId: profile.id,
-      userEmail: profile.email,
-      action: 'USER_SIGNUP',
-      targetType: 'user',
-      targetId: profile.id,
-      details: { organizationName: org.name, role: profile.role },
-      ipAddress: req.ip
-    });
-
-    res.status(201).json({
-      message: 'Signup successful. Please verify email and phone.',
-      profile,
-      organization: org,
-      sessionToken: session.sessionToken,
-      emailOtp,
-      phoneOtp,
-      verificationRequired: {
-        email: true,
-        phone: Boolean(phoneNumber),
-        mfa: false
-      },
-      devHint: `Your verification code is: ${emailOtp}`
+    // If unauthenticated, advise client to sign up via Supabase Auth
+    res.status(200).json({
+      message: 'Account registration initiated. Please verify your credentials with Supabase Auth.'
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Signup failed' });
   }
 });
 
-// POST /api/auth/login
+// POST /api/auth/login - Verified via Supabase Auth session/token
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required.' });
+    const auth = await getAuthContext(req);
+    if (!auth) {
+      return res.status(401).json({ error: 'Authentication required. Please sign in with Supabase Auth.' });
     }
-
-    const profile = await db.getProfileByEmail(email);
-    if (!profile) {
-      return res.status(404).json({ error: 'User account not found. Please sign up.' });
-    }
-
-    const orgs = await db.getUserOrganizations(profile.id);
-    const org = orgs[0];
-    if (!org) {
-      return res.status(403).json({ error: 'No active organization found for user.' });
-    }
-
-    const session = await db.createSession(profile.id, org.id, req.ip, req.headers['user-agent'] as string);
-    res.cookie('vrsoc_session', session.sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
-    await db.addAuditLog({
-      organizationId: org.id,
-      userId: profile.id,
-      userEmail: profile.email,
-      action: 'USER_LOGIN',
-      targetType: 'user',
-      targetId: profile.id,
-      details: { role: profile.role },
-      ipAddress: req.ip
-    });
 
     res.json({
-      profile,
-      organization: org,
-      sessionToken: session.sessionToken
+      profile: auth.profile,
+      organization: auth.organization
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Login failed' });
   }
 });
 
-// POST /api/auth/resend-email-otp
+// POST /api/auth/resend-email-otp - Handled by Supabase Auth
 app.post('/api/auth/resend-email-otp', requireAuth, (req, res) => {
-  const user = (req as any).user;
-  const emailOtp = Math.floor(100000 + Math.random() * 900000).toString();
-  db.setOtp(user.email.toLowerCase(), 'email', emailOtp, 10);
   res.json({
     success: true,
-    message: 'Verification code resent to your email.',
-    emailOtp,
-    devHint: `Your verification code is: ${emailOtp}`
+    message: 'Verification code request accepted. Please check your email inbox.'
   });
 });
 
-// POST /api/auth/resend-phone-otp
+// POST /api/auth/resend-phone-otp - Handled by Supabase Auth
 app.post('/api/auth/resend-phone-otp', requireAuth, (req, res) => {
-  const user = (req as any).user;
-  const phoneOtp = Math.floor(100000 + Math.random() * 900000).toString();
-  const phoneKey = user.phoneNumber || user.email;
-  db.setOtp(phoneKey, 'phone', phoneOtp, 10);
   res.json({
     success: true,
-    message: 'Verification code resent to your phone.',
-    phoneOtp,
-    devHint: `Your verification code is: ${phoneOtp}`
+    message: 'Phone verification request accepted. Please check your mobile messages.'
   });
 });
 
-// POST /api/auth/verify-email-otp
+// POST /api/auth/verify-email-otp - Verified via Supabase Auth
 app.post('/api/auth/verify-email-otp', requireAuth, async (req, res) => {
   try {
-    const { otp } = req.body;
-    const user = (req as any).user;
-    if (!otp) return res.status(400).json({ error: 'OTP code required.' });
-
-    const result = db.verifyOtp(user.email, 'email', otp);
-    if (!result.success) {
-      return res.status(400).json({ error: result.message });
-    }
-
-    const updated = await db.updateProfile(user.id, { emailVerified: true });
-    res.json({ success: true, profile: updated });
+    const auth = req.auth!;
+    res.json({
+      success: true,
+      profile: auth.profile,
+      emailVerified: auth.user.emailConfirmed
+    });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Email verification failed' });
+    res.status(500).json({ error: err.message || 'Email verification check failed' });
   }
 });
 
-// POST /api/auth/verify-phone-otp
+// POST /api/auth/verify-phone-otp - Verified via Supabase Auth
 app.post('/api/auth/verify-phone-otp', requireAuth, async (req, res) => {
   try {
-    const { otp } = req.body;
-    const user = (req as any).user;
-    if (!otp) return res.status(400).json({ error: 'OTP code required.' });
-
-    const result = db.verifyOtp(user.phoneNumber || user.email, 'phone', otp);
-    if (!result.success) {
-      return res.status(400).json({ error: result.message });
-    }
-
-    const updated = await db.updateProfile(user.id, { phoneVerified: true });
-    res.json({ success: true, profile: updated });
+    const auth = req.auth!;
+    res.json({
+      success: true,
+      profile: auth.profile,
+      phoneVerified: auth.user.phoneConfirmed
+    });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Phone verification failed' });
+    res.status(500).json({ error: err.message || 'Phone verification check failed' });
   }
 });
 
-// POST /api/auth/mfa-setup
+// POST /api/auth/mfa-setup - Directs to Supabase Auth MFA
 app.post('/api/auth/mfa-setup', requireAuth, (req, res) => {
-  const user = (req as any).user;
-  const mfaSecret = 'JBSWY3DPEHPK3PXP';
+  const auth = req.auth!;
   res.json({
-    mfaSecret,
-    qrUri: `otpauth://totp/VRSOC:${encodeURIComponent(user.email)}?secret=${mfaSecret}&issuer=VRSOC`
+    message: 'Please enroll TOTP multi-factor authentication directly via Supabase Auth MFA.',
+    userEmail: auth.user.email
   });
 });
 
-// POST /api/auth/mfa-verify
+// POST /api/auth/mfa-verify - Verified via Supabase Auth MFA
 app.post('/api/auth/mfa-verify', requireAuth, async (req, res) => {
   try {
-    const { token } = req.body;
-    const user = (req as any).user;
-    if (!token) return res.status(400).json({ error: 'Verification code required.' });
-
-    if (!/^\d{6}$/.test(token.trim())) {
-      return res.status(400).json({ error: 'Invalid TOTP format. Expected 6 digits.' });
-    }
-
-    const updated = await db.updateProfile(user.id, { mfaEnabled: true, mfaSecret: 'JBSWY3DPEHPK3PXP' });
-    res.json({ success: true, profile: updated });
+    const auth = req.auth!;
+    res.json({
+      success: true,
+      profile: auth.profile,
+      mfaEnabled: auth.profile.mfaEnabled
+    });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'MFA verification failed' });
+    res.status(500).json({ error: err.message || 'MFA check failed' });
   }
 });
 
-// GET /api/auth/me
-app.get('/api/auth/me', async (req, res) => {
+// GET /api/auth/me - Authoritative identity and organization context
+app.get('/api/auth/me', requireAuth, async (req, res) => {
   try {
-    const session = await getAuthContext(req);
-    if (!session) {
-      return res.status(401).json({ error: 'Unauthenticated' });
-    }
+    const auth = req.auth!;
     res.json({
-      profile: session.profile,
-      organization: session.organization,
-      sessionToken: session.sessionToken
+      profile: auth.profile,
+      organization: auth.organization,
+      membership: auth.membership || null,
+      user: {
+        id: auth.user.id,
+        email: auth.user.email,
+        emailConfirmed: auth.user.emailConfirmed,
+        phoneConfirmed: auth.user.phoneConfirmed
+      }
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to resolve session' });
   }
 });
 
-// POST /api/auth/logout
-app.post('/api/auth/logout', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = (authHeader && authHeader.startsWith('Bearer '))
-      ? authHeader.substring(7)
-      : req.cookies?.vrsoc_session;
-
-    if (token) {
-      await db.deleteSession(token);
-    }
-    res.clearCookie('vrsoc_session');
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Logout error' });
-  }
+// POST /api/auth/logout - Terminates server cookies/state
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('vrsoc_session');
+  res.json({ success: true, message: 'Logged out successfully.' });
 });
 
 // -----------------------------------------------------------------------------
@@ -1524,4 +1347,18 @@ async function startServer() {
   });
 }
 
-startServer();
+const isDirectRun = Boolean(
+  process.argv[1] &&
+  (process.argv[1].endsWith('server.ts') ||
+   process.argv[1].endsWith('server.cjs') ||
+   process.argv[1].endsWith('server.js'))
+);
+
+if (isDirectRun && process.env.NODE_ENV !== 'test') {
+  startServer();
+}
+
+export { app, startServer };
+
+
+

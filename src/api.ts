@@ -34,25 +34,23 @@ class ApiClient {
 
   // Auth
   async signup(data: { fullName: string; email: string; phoneNumber?: string; organizationName: string; password?: string }) {
-    const res = await this.request<{ profile: Profile; organization: Organization; sessionToken: string; devHint?: string; emailOtp?: string; phoneOtp?: string }>('/api/auth/signup', {
+    const res = await this.request<{ message?: string; profile?: Profile; organization?: Organization; vrSocKey?: string }>('/api/auth/signup', {
       method: 'POST',
       body: JSON.stringify(data)
     });
-    localStorage.setItem('vrsoc_token', res.sessionToken);
     return res;
   }
 
   async login(data: { email: string; password?: string }) {
-    const res = await this.request<{ profile: Profile; organization: Organization; sessionToken: string }>('/api/auth/login', {
+    const res = await this.request<{ profile: Profile; organization: Organization }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify(data)
     });
-    localStorage.setItem('vrsoc_token', res.sessionToken);
     return res;
   }
 
   async getMe() {
-    return this.request<{ profile: Profile; organization: Organization; sessionToken: string }>('/api/auth/me');
+    return this.request<{ profile: Profile; organization: Organization; membership?: any; user?: any }>('/api/auth/me');
   }
 
   async completeOnboarding(data: { organizationName: string; fullName?: string; phoneNumber?: string }) {
@@ -71,37 +69,37 @@ class ApiClient {
   }
 
   async verifyEmailOtp(otp: string) {
-    return this.request<{ success: boolean; profile: Profile }>('/api/auth/verify-email-otp', {
+    return this.request<{ success: boolean; profile: Profile; emailVerified?: boolean }>('/api/auth/verify-email-otp', {
       method: 'POST',
       body: JSON.stringify({ otp })
     });
   }
 
   async resendEmailOtp() {
-    return this.request<{ success: boolean; message: string; emailOtp?: string; devHint?: string }>('/api/auth/resend-email-otp', {
+    return this.request<{ success: boolean; message: string }>('/api/auth/resend-email-otp', {
       method: 'POST'
     });
   }
 
   async verifyPhoneOtp(otp: string) {
-    return this.request<{ success: boolean; profile: Profile }>('/api/auth/verify-phone-otp', {
+    return this.request<{ success: boolean; profile: Profile; phoneVerified?: boolean }>('/api/auth/verify-phone-otp', {
       method: 'POST',
       body: JSON.stringify({ otp })
     });
   }
 
   async resendPhoneOtp() {
-    return this.request<{ success: boolean; message: string; phoneOtp?: string; devHint?: string }>('/api/auth/resend-phone-otp', {
+    return this.request<{ success: boolean; message: string }>('/api/auth/resend-phone-otp', {
       method: 'POST'
     });
   }
 
   async getMfaSetup() {
-    return this.request<{ mfaSecret: string; qrUri: string }>('/api/auth/mfa-setup', { method: 'POST' });
+    return this.request<{ message?: string; mfaSecret?: string; qrUri?: string; userEmail?: string }>('/api/auth/mfa-setup', { method: 'POST' });
   }
 
   async verifyMfa(token: string) {
-    return this.request<{ success: boolean; profile: Profile }>('/api/auth/mfa-verify', {
+    return this.request<{ success: boolean; profile: Profile; mfaEnabled?: boolean }>('/api/auth/mfa-verify', {
       method: 'POST',
       body: JSON.stringify({ token })
     });

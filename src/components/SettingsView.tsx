@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Key, Shield, RefreshCw, Copy, Check, AlertTriangle, Lock, User, Clock } from 'lucide-react';
 import { Organization, Profile } from '../types';
 import { api } from '../api';
+import { supabaseEnrollMfa, supabaseVerifyMfa } from '../lib/supabase';
 
 interface SettingsViewProps {
   organization: Organization | null;
@@ -27,6 +28,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // MFA Setup in Settings
   const [showMfaSetup, setShowMfaSetup] = useState(false);
+  const [mfaFactorId, setMfaFactorId] = useState('');
   const [mfaSecret, setMfaSecret] = useState('');
   const [mfaToken, setMfaToken] = useState('');
   const [verifyingMfa, setVerifyingMfa] = useState(false);
@@ -63,8 +65,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleStartMfa = async () => {
     try {
-      const res = await api.getMfaSetup();
-      setMfaSecret(res.mfaSecret);
+      const res = await supabaseEnrollMfa();
+      setMfaFactorId(res.id);
+      if (res.totp) {
+        setMfaSecret(res.totp.secret);
+      }
       setShowMfaSetup(true);
     } catch (err: any) {
       setError(err.message || 'Failed to initialize MFA setup');
@@ -75,6 +80,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setVerifyingMfa(true);
     setError(null);
     try {
+      if (mfaFactorId) {
+        await supabaseVerifyMfa(mfaFactorId, mfaToken);
+      }
       const res = await api.verifyMfa(mfaToken);
       onProfileUpdated(res.profile);
       setShowMfaSetup(false);
@@ -200,7 +208,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="p-4 rounded bg-zinc-950 border border-zinc-800 space-y-3">
             <span className="font-semibold text-zinc-200 block text-xs">Setup TOTP Authenticator:</span>
             <div className="p-2.5 rounded bg-zinc-900 border border-zinc-700 font-mono text-center tracking-widest text-amber-400 font-bold">
-              {mfaSecret || 'JBSWY3DPEHPK3PXP'}
+              {mfaSecret || 'Awaiting TOTP Secret...'}
             </div>
             <div className="flex gap-2">
               <input

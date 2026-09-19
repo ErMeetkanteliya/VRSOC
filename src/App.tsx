@@ -14,7 +14,7 @@ import { ReportsView } from './components/ReportsView';
 import { AuditLogsView } from './components/AuditLogsView';
 import { SettingsView } from './components/SettingsView';
 import { api } from './api';
-import { supabaseSignOut } from './lib/supabase';
+import { supabaseSignOut, getSupabaseSession, syncServerAuthConfig } from './lib/supabase';
 import { Profile, Organization, Agent, Alert, Incident, DetectionRule, EndpointEvent, Report, AuditLog, RealMetrics } from './types';
 
 export default function App() {
@@ -53,15 +53,23 @@ export default function App() {
   const [sseConnected, setSseConnected] = useState<boolean>(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  // 1. Initial Session Check
+  // 1. Initial Session Check via Supabase Auth
   useEffect(() => {
     async function checkAuth() {
       try {
-        const res = await api.getMe();
-        setProfile(res.profile);
-        setOrganization(res.organization);
-      } catch {
-        // No session token or invalid
+        await syncServerAuthConfig();
+        const { session } = await getSupabaseSession();
+        if (session?.access_token) {
+          localStorage.setItem('vrsoc_token', session.access_token);
+          const res = await api.getMe();
+          setProfile(res.profile);
+          setOrganization(res.organization);
+        } else {
+          setProfile(null);
+          setOrganization(null);
+        }
+      } catch (err) {
+        console.warn('Session restoration note:', err);
         setProfile(null);
         setOrganization(null);
       } finally {

@@ -1,16 +1,15 @@
 {
-  "name": "react-example",
+  "name": "vrsoc",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
-<<<<<<< HEAD
     "seed:local": "tsx scripts/seed-local.ts",
-=======
->>>>>>> origin/main
+    "verify:seed": "tsx scripts/verify-seed.ts",
+    "verify:auth": "tsx scripts/verify-auth-hardening.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

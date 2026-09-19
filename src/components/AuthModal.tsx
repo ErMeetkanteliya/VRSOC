@@ -61,8 +61,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   // Verification & Flow State
   const [emailVerified, setEmailVerified] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
-  const [hintEmailOtp, setHintEmailOtp] = useState<string>('');
-  const [hintPhoneOtp, setHintPhoneOtp] = useState<string>('');
 
   // MFA State (Real Supabase MFA)
   const [mfaFactorId, setMfaFactorId] = useState<string>('');
@@ -120,7 +118,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     }
   };
 
-  // 1. Submit Signup -> Supabase Auth or Native VRSOC Auth
+  // 1. Submit Signup -> Supabase Auth
   const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -132,31 +130,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
 
     setLoading(true);
     try {
-      if (supabaseReady) {
-        await supabaseSignUp({
-          email,
-          password,
-          fullName,
-          phoneNumber: phoneNumber ? formatToE164(phoneNumber) : undefined,
-          organizationName,
-        });
-        setInfoMessage('Verification code generated and dispatched by Supabase. Please enter the OTP.');
-        navigateToStep('verify-email');
-      } else {
-        const res = await api.signup({
-          email,
-          password,
-          fullName,
-          phoneNumber: phoneNumber || undefined,
-          organizationName,
-        });
-        if (res.emailOtp) setHintEmailOtp(res.emailOtp);
-        if (res.phoneOtp) setHintPhoneOtp(res.phoneOtp);
-        setRegisteredProfile(res.profile);
-        setRegisteredOrg(res.organization);
-        setInfoMessage('Account registered successfully. Please verify your email OTP.');
-        navigateToStep('verify-email');
-      }
+      await supabaseSignUp({
+        email,
+        password,
+        fullName,
+        phoneNumber: phoneNumber ? formatToE164(phoneNumber) : undefined,
+        organizationName,
+      });
+      setInfoMessage('Verification code generated and dispatched by Supabase Auth. Please check your email.');
+      navigateToStep('verify-email');
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please check your inputs.');
     } finally {
@@ -164,40 +146,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     }
   };
 
-  // 2. Submit Login -> Supabase Auth or Native VRSOC Auth
+  // 2. Submit Login -> Supabase Auth
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     setLoading(true);
     try {
-      if (supabaseReady) {
-        const data = await supabaseSignInWithPassword(email, password);
-        if (data.user && !data.user.email_confirmed_at) {
-          setInfoMessage('Email address is unverified. Please complete verification code.');
-          navigateToStep('verify-email');
-          return;
-        }
+      const data = await supabaseSignInWithPassword(email, password);
+      if (data.user && !data.user.email_confirmed_at) {
+        setInfoMessage('Email address is unverified. Please complete verification code.');
+        navigateToStep('verify-email');
+        return;
+      }
 
-        const me = await api.getMe();
-        if (!me.organization) {
-          setRegisteredProfile(me.profile);
-          navigateToStep('setup-mfa');
-        } else {
-          onSuccess(me.profile, me.organization);
-        }
+      const me = await api.getMe();
+      if (!me.organization) {
+        setRegisteredProfile(me.profile);
+        navigateToStep('setup-mfa');
       } else {
-        const res = await api.login({ email, password });
-        if (res.profile && res.organization) {
-          onSuccess(res.profile, res.organization);
-        } else {
-          const me = await api.getMe();
-          if (me.profile && me.organization) {
-            onSuccess(me.profile, me.organization);
-          } else {
-            setError('Login succeeded but organization session could not be established.');
-          }
-        }
+        onSuccess(me.profile, me.organization);
       }
     } catch (err: any) {
       setError(err.message || 'Login failed. Verify your email and password.');
@@ -234,21 +202,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     setMfaLoading(true);
     navigateToStep('setup-mfa');
     try {
-      if (supabaseReady) {
-        const enrollRes = await supabaseEnrollMfa();
-        setMfaFactorId(enrollRes.id);
-        if (enrollRes.totp) {
-          setMfaSecret(enrollRes.totp.secret);
-          setMfaQrUri(enrollRes.totp.uri);
-        }
-      } else {
-        const setup = await api.getMfaSetup();
-        setMfaSecret(setup.mfaSecret);
-        setMfaQrUri(setup.qrUri);
+      const enrollRes = await supabaseEnrollMfa();
+      setMfaFactorId(enrollRes.id);
+      if (enrollRes.totp) {
+        setMfaSecret(enrollRes.totp.secret);
+        setMfaQrUri(enrollRes.totp.uri);
       }
     } catch (err: any) {
       console.warn('MFA enrollment note:', err);
-      setMfaSecret('JBSWY3DPEHPK3PXP');
+      setError(err.message || 'MFA enrollment initialization failed.');
     } finally {
       setMfaLoading(false);
     }
@@ -264,10 +226,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     setMfaLoading(true);
     setError(null);
     try {
-      if (supabaseReady && mfaFactorId) {
+      if (mfaFactorId) {
         await supabaseVerifyMfa(mfaFactorId, mfaToken);
-      } else {
-        await api.verifyMfa(mfaToken);
       }
       setMfaConfigured(true);
       finalizeOnboarding();
@@ -336,7 +296,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
       <div className="fixed inset-0 z-50 bg-zinc-950/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
         <VerifyEmailPage
           email={email}
-          hintOtp={hintEmailOtp}
           onVerified={handleEmailVerified}
           onBackToLogin={() => navigateToStep('auth')}
         />
@@ -349,7 +308,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
       <div className="fixed inset-0 z-50 bg-zinc-950/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
         <VerifyPhonePage
           initialPhone={phoneNumber}
-          hintOtp={hintPhoneOtp}
           onVerified={handlePhoneVerified}
           onSkip={() => initiateMfaSetup()}
           onBack={() => navigateToStep('verify-email')}
@@ -645,7 +603,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             <div className="p-3 bg-zinc-950 rounded border border-zinc-800 text-center space-y-2">
               <span className="text-[11px] text-zinc-400">Authenticator Secret Code:</span>
               <div className="p-2 rounded bg-zinc-900 border border-zinc-700 font-mono text-sm tracking-widest text-amber-400 font-bold select-all">
-                {mfaSecret || 'JBSWY3DPEHPK3PXP'}
+                {mfaSecret || 'Awaiting enrollment secret...'}
               </div>
               <p className="text-[10px] text-zinc-500">
                 Enter this secret code in your authenticator app to generate 6-digit TOTP tokens.
