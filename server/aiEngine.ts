@@ -271,6 +271,7 @@ RULES:
 - **CONFIRMED Evidence**:
   - Priority / Severity: ${targetedIncident.priority} / ${targetedIncident.severity.toUpperCase()}
   - Current Status: ${targetedIncident.status.toUpperCase()}
+  - Lead Investigator: ${targetedIncident.leadInvestigatorName || 'Unassigned'}
   - Linked Alerts: ${targetedIncident.linkedAlertIds.join(', ') || 'No linked alerts'}
   - Timeline Events: ${targetedIncident.timeline.length} recorded entry/entries
   - Tasks: ${targetedIncident.tasks.filter(t => t.completed).length}/${targetedIncident.tasks.length} completed

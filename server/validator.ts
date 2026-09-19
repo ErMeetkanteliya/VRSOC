@@ -179,12 +179,24 @@ export const alertFilterQuerySchema = z.object({
 // -----------------------------------------------------------------------------
 // SCHEMAS: INCIDENTS
 // -----------------------------------------------------------------------------
+export const incidentFilterQuerySchema = z.object({
+  environment: z.enum(['production', 'training', 'test', 'all', 'staging']).optional(),
+  status: z.enum(['open', 'investigating', 'contained', 'resolved', 'false_positive', 'all']).optional(),
+  severity: z.enum(['low', 'medium', 'high', 'critical', 'all']).optional(),
+  priority: z.enum(['P1', 'P2', 'P3', 'P4', 'all']).optional(),
+  leadInvestigator: z.string().trim().max(100).optional(),
+  search: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().min(1).max(500).optional(),
+  offset: z.coerce.number().min(0).optional()
+});
+
 export const incidentCreateSchema = z.object({
   title: z.string().trim().min(1, 'Title and description are required.').max(200),
   description: z.string().trim().min(1, 'Title and description are required.').max(4000),
   severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   priority: z.enum(['P1', 'P2', 'P3', 'P4']).optional(),
   linkedAlertIds: z.array(z.string().max(100)).max(50).optional(),
+  leadInvestigator: z.string().trim().max(100).nullable().optional(),
   environment: z.enum(['production', 'training', 'test']).optional()
 });
 
@@ -194,15 +206,22 @@ export const incidentUpdateSchema = z.object({
   description: z.string().trim().max(4000).optional(),
   severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   priority: z.enum(['P1', 'P2', 'P3', 'P4']).optional(),
-  status: z.enum(['open', 'investigating', 'contained', 'resolved', 'closed']).optional(),
-  leadInvestigator: z.string().trim().max(100).optional(),
+  status: z.enum(['open', 'investigating', 'contained', 'resolved', 'false_positive']).optional(),
+  leadInvestigator: z.string().trim().max(100).nullable().optional(),
   leadInvestigatorName: z.string().trim().max(100).optional(),
+  lessonsLearned: z.string().trim().max(4000).optional(),
+  linkedAlertIds: z.array(z.string().max(100)).max(50).optional(),
   environment: z.enum(['production', 'training', 'test']).optional(),
   tags: z.array(z.string().max(50)).max(20).optional()
 }).strict({ message: 'Unrecognized or privileged fields cannot be updated.' });
 
+export const incidentLinkAlertSchema = z.object({
+  alertId: z.string().trim().min(1, 'Alert ID is required.').max(100)
+});
+
 export const incidentTaskCreateSchema = z.object({
-  title: z.string().trim().min(1, 'Task title cannot be empty.').max(200)
+  title: z.string().trim().min(1, 'Task title cannot be empty.').max(200),
+  assignedTo: z.string().trim().max(100).nullable().optional()
 });
 
 export const incidentTaskIdParamSchema = z.object({
@@ -217,8 +236,8 @@ export const incidentTaskToggleSchema = z.object({
 export const incidentTimelineCreateSchema = z.object({
   title: z.string().trim().min(1, 'Timeline item title is required.').max(200),
   description: z.string().trim().max(2000).optional(),
-  type: z.string().trim().max(50).optional(),
-  evidenceState: z.enum(['CONFIRMED', 'INFERRED', 'UNKNOWN', 'DISPROVEN']).optional()
+  type: z.enum(['alert', 'action', 'observation', 'containment']).optional(),
+  evidenceState: z.enum(['CONFIRMED', 'INFERRED', 'UNKNOWN']).optional()
 });
 
 export const incidentNoteCreateSchema = z.object({

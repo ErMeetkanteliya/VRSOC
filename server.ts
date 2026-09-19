@@ -44,8 +44,10 @@ import {
   alertLinkIncidentSchema,
   alertFilterQuerySchema,
   alertCommentSchema,
+  incidentFilterQuerySchema,
   incidentCreateSchema,
   incidentUpdateSchema,
+  incidentLinkAlertSchema,
   incidentTaskCreateSchema,
   incidentTaskIdParamSchema,
   incidentTaskToggleSchema,
@@ -1142,12 +1144,11 @@ app.get(
   '/api/incidents',
   requireAuth,
   requirePermission('incidents:read'),
-  validateRequest({ query: environmentQuerySchema }),
+  validateRequest({ query: incidentFilterQuerySchema }),
   async (req, res, next) => {
     try {
       const org = req.organization!;
-      const env = (req.query.environment as string) || 'production';
-      const incidents = await db.getIncidents(org.id, env);
+      const incidents = await db.getIncidents(org.id, req.query as any);
       res.json({ incidents });
     } catch (err: any) {
       next(err);
@@ -1165,7 +1166,20 @@ app.post(
     try {
       const org = req.organization!;
       const user = req.user!;
-      const { title, description, severity, priority, linkedAlertIds, environment } = req.body;
+      const { title, description, severity, priority, linkedAlertIds, leadInvestigator, environment } = req.body;
+
+      let validInvestigator = user.id;
+      let validInvestigatorName = user.fullName;
+
+      if (leadInvestigator) {
+        const member = await db.getMember(org.id, leadInvestigator);
+        if (!member) {
+          return res.status(400).json({ error: 'Target lead investigator is not a member of this organization.' });
+        }
+        validInvestigator = leadInvestigator;
+        const prof = await db.getProfileById(leadInvestigator);
+        if (prof) validInvestigatorName = prof.fullName;
+      }
 
       // Verify all linkedAlertIds belong to the authenticated organization
       let validLinkedAlertIds: string[] = [];
@@ -1185,8 +1199,8 @@ app.post(
         severity: severity || 'medium',
         status: 'open',
         priority: priority || 'P2',
-        leadInvestigator: user.id,
-        leadInvestigatorName: user.fullName,
+        leadInvestigator: validInvestigator,
+        leadInvestigatorName: validInvestigatorName,
         linkedAlertIds: validLinkedAlertIds,
         environment: environment || 'production'
       });
@@ -1198,7 +1212,7 @@ app.post(
         action: 'CREATE_INCIDENT',
         targetType: 'incident',
         targetId: incident.id,
-        details: { title: incident.title, severity: incident.severity, priority: incident.priority },
+        details: { title: incident.title, severity: incident.severity, priority: incident.priority, leadInvestigator: validInvestigator },
         ipAddress: req.ip
       });
 
@@ -1251,8 +1265,23 @@ app.patch(
         return res.status(404).json({ error: 'Incident not found' });
       }
 
-      // Safe whitelisted updates from validated body
       const updates = req.body;
+
+      // Status transition validation
+      if (updates.status && updates.status !== incident.status) {
+        if (!db.isValidIncidentTransition(incident.status, updates.status)) {
+          return res.status(400).json({ error: `Invalid status transition from '${incident.status}' to '${updates.status}'.` });
+        }
+      }
+
+      // Lead investigator assignment validation
+      if (updates.leadInvestigator !== undefined && updates.leadInvestigator !== null && updates.leadInvestigator !== '') {
+        const member = await db.getMember(org.id, updates.leadInvestigator);
+        if (!member) {
+          return res.status(400).json({ error: 'Target lead investigator is not a member of this organization.' });
+        }
+      }
+
       const updated = await db.updateIncident(incident.id, updates, org.id);
 
       await db.addAuditLog({
@@ -1266,7 +1295,54 @@ app.patch(
         ipAddress: req.ip
       });
 
+      broadcastEvent(org.id, 'incident_updated', updated);
       res.json({ incident: updated });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/incidents/:id/link-alert
+app.post(
+  '/api/incidents/:id/link-alert',
+  requireAuth,
+  requirePermission('incidents:update'),
+  validateRequest({ params: idParamSchema, body: incidentLinkAlertSchema }),
+  async (req, res, next) => {
+    try {
+      const org = req.organization!;
+      const user = req.user!;
+      const { alertId } = req.body;
+
+      const incident = await db.getIncidentById(req.params.id, org.id);
+      if (!incident) {
+        return res.status(404).json({ error: 'Incident not found' });
+      }
+
+      const alert = await db.getAlertById(alertId, org.id);
+      if (!alert) {
+        return res.status(404).json({ error: 'Alert not found in this organization.' });
+      }
+
+      const updatedIncident = await db.linkAlertToIncident(incident.id, alert.id, org.id);
+      const updatedAlert = await db.getAlertById(alert.id, org.id);
+
+      await db.addAuditLog({
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        action: 'LINK_INCIDENT_ALERT',
+        targetType: 'incident',
+        targetId: incident.id,
+        details: { alertId, alertTitle: alert.title },
+        ipAddress: req.ip
+      });
+
+      broadcastEvent(org.id, 'incident_updated', updatedIncident);
+      if (updatedAlert) broadcastEvent(org.id, 'alert_updated', updatedAlert);
+
+      res.json({ incident: updatedIncident, alert: updatedAlert });
     } catch (err: any) {
       next(err);
     }
@@ -1282,12 +1358,34 @@ app.post(
   async (req, res, next) => {
     try {
       const org = req.organization!;
-      const { title } = req.body;
+      const user = req.user!;
+      const { title, assignedTo } = req.body;
       const incident = await db.getIncidentById(req.params.id, org.id);
       if (!incident) {
         return res.status(404).json({ error: 'Incident not found' });
       }
-      const updated = await db.addIncidentTask(incident.id, title.trim(), undefined, org.id);
+
+      if (assignedTo) {
+        const member = await db.getMember(org.id, assignedTo);
+        if (!member) {
+          return res.status(400).json({ error: 'Task assignee is not a member of this organization.' });
+        }
+      }
+
+      const updated = await db.addIncidentTask(incident.id, title.trim(), assignedTo, org.id);
+
+      await db.addAuditLog({
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        action: 'ADD_INCIDENT_TASK',
+        targetType: 'incident',
+        targetId: incident.id,
+        details: { taskTitle: title, assignedTo },
+        ipAddress: req.ip
+      });
+
+      broadcastEvent(org.id, 'incident_updated', updated);
       res.json({ incident: updated });
     } catch (err: any) {
       next(err);
@@ -1304,12 +1402,26 @@ app.patch(
   async (req, res, next) => {
     try {
       const org = req.organization!;
+      const user = req.user!;
       const { completed } = req.body;
       const incident = await db.getIncidentById(req.params.id, org.id);
       if (!incident) {
         return res.status(404).json({ error: 'Incident not found' });
       }
       const updated = await db.toggleIncidentTask(incident.id, req.params.taskId, Boolean(completed), org.id);
+
+      await db.addAuditLog({
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        action: 'TOGGLE_INCIDENT_TASK',
+        targetType: 'incident',
+        targetId: incident.id,
+        details: { taskId: req.params.taskId, completed: Boolean(completed) },
+        ipAddress: req.ip
+      });
+
+      broadcastEvent(org.id, 'incident_updated', updated);
       res.json({ incident: updated });
     } catch (err: any) {
       next(err);
@@ -1326,6 +1438,7 @@ app.post(
   async (req, res, next) => {
     try {
       const org = req.organization!;
+      const user = req.user!;
       const { title, description, type, evidenceState } = req.body;
       const incident = await db.getIncidentById(req.params.id, org.id);
       if (!incident) {
@@ -1336,9 +1449,22 @@ app.post(
         timestamp: new Date().toISOString(),
         title: title.trim(),
         description: description ? description.trim() : '',
-        type: type ? type.trim() : 'observation',
+        type: type ? (type as any) : 'observation',
         evidenceState: evidenceState || 'CONFIRMED'
       }, org.id);
+
+      await db.addAuditLog({
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        action: 'ADD_INCIDENT_TIMELINE',
+        targetType: 'incident',
+        targetId: incident.id,
+        details: { title, type, evidenceState },
+        ipAddress: req.ip
+      });
+
+      broadcastEvent(org.id, 'incident_updated', updated);
       res.json({ incident: updated });
     } catch (err: any) {
       next(err);
@@ -1363,6 +1489,19 @@ app.post(
       }
 
       const updated = await db.addIncidentNote(incident.id, user.id, user.fullName, note.trim(), org.id);
+
+      await db.addAuditLog({
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        action: 'ADD_INCIDENT_NOTE',
+        targetType: 'incident',
+        targetId: incident.id,
+        details: { noteLength: note.trim().length },
+        ipAddress: req.ip
+      });
+
+      broadcastEvent(org.id, 'incident_updated', updated);
       res.json({ incident: updated });
     } catch (err: any) {
       next(err);

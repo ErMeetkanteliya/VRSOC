@@ -196,15 +196,26 @@ class ApiClient {
   }
 
   // Incidents
-  async getIncidents(environment = 'production') {
-    return this.request<{ incidents: Incident[] }>(`/api/incidents?environment=${environment}`);
+  async getIncidents(filtersOrEnv: string | { environment?: string; status?: string; severity?: string; priority?: string; search?: string; limit?: number; offset?: number } = 'production') {
+    if (typeof filtersOrEnv === 'string') {
+      return this.request<{ incidents: Incident[] }>(`/api/incidents?environment=${encodeURIComponent(filtersOrEnv)}`);
+    }
+    const params = new URLSearchParams();
+    if (filtersOrEnv.environment) params.append('environment', filtersOrEnv.environment);
+    if (filtersOrEnv.status) params.append('status', filtersOrEnv.status);
+    if (filtersOrEnv.severity) params.append('severity', filtersOrEnv.severity);
+    if (filtersOrEnv.priority) params.append('priority', filtersOrEnv.priority);
+    if (filtersOrEnv.search) params.append('search', filtersOrEnv.search);
+    if (filtersOrEnv.limit) params.append('limit', String(filtersOrEnv.limit));
+    if (filtersOrEnv.offset) params.append('offset', String(filtersOrEnv.offset));
+    return this.request<{ incidents: Incident[] }>(`/api/incidents?${params.toString()}`);
   }
 
   async getIncident(id: string) {
     return this.request<{ incident: Incident; linkedAlerts: Alert[] }>(`/api/incidents/${id}`);
   }
 
-  async createIncident(data: { title: string; description: string; severity?: string; priority?: string; linkedAlertIds?: string[]; environment?: string }) {
+  async createIncident(data: { title: string; description: string; severity?: string; priority?: string; linkedAlertIds?: string[]; leadInvestigator?: string | null; environment?: string }) {
     return this.request<{ incident: Incident }>('/api/incidents', {
       method: 'POST',
       body: JSON.stringify(data)
@@ -218,10 +229,17 @@ class ApiClient {
     });
   }
 
-  async addIncidentTask(id: string, title: string) {
+  async linkIncidentAlert(id: string, alertId: string) {
+    return this.request<{ incident: Incident; alert: Alert }>(`/api/incidents/${id}/link-alert`, {
+      method: 'POST',
+      body: JSON.stringify({ alertId })
+    });
+  }
+
+  async addIncidentTask(id: string, title: string, assignedTo?: string | null) {
     return this.request<{ incident: Incident }>(`/api/incidents/${id}/task`, {
       method: 'POST',
-      body: JSON.stringify({ title })
+      body: JSON.stringify({ title, assignedTo })
     });
   }
 

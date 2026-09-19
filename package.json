@@ -15,6 +15,7 @@
     "verify:agent": "tsx scripts/verify-agent-security.ts",
     "verify:pipeline": "tsx scripts/verify-telemetry-pipeline.ts",
     "verify:alert": "tsx scripts/verify-alert-lifecycle.ts",
+    "verify:incident": "tsx scripts/verify-incident-management.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

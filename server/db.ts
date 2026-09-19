@@ -1252,13 +1252,84 @@ export class Database {
   }
 
   // --- Incidents, Tasks & Timeline ---
-  public async getIncidents(orgId: string, environment = 'production'): Promise<Incident[]> {
-    const { data: incidents, error: incError } = await this.client
+  public isValidIncidentTransition(currentStatus: string, newStatus: string): boolean {
+    if (currentStatus === newStatus) return true; // Idempotent no-op
+
+    const transitions: Record<string, string[]> = {
+      open: ['investigating', 'contained', 'resolved', 'false_positive'],
+      investigating: ['open', 'contained', 'resolved', 'false_positive'],
+      contained: ['open', 'investigating', 'resolved', 'false_positive'],
+      resolved: ['open', 'investigating'], // Reopening
+      false_positive: ['open', 'investigating'] // Reopening
+    };
+
+    return (transitions[currentStatus] || []).includes(newStatus);
+  }
+
+  public async getIncidents(
+    orgId: string,
+    filtersOrEnv: string | {
+      environment?: string;
+      status?: string;
+      severity?: string;
+      priority?: string;
+      leadInvestigator?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = 'production'
+  ): Promise<Incident[]> {
+    let env = 'production';
+    let statusFilter: string | undefined;
+    let severityFilter: string | undefined;
+    let priorityFilter: string | undefined;
+    let leadInvestigatorFilter: string | undefined;
+    let searchFilter: string | undefined;
+    let limit = 100;
+    let offset = 0;
+
+    if (typeof filtersOrEnv === 'string') {
+      env = filtersOrEnv;
+    } else if (filtersOrEnv && typeof filtersOrEnv === 'object') {
+      env = filtersOrEnv.environment || 'production';
+      statusFilter = filtersOrEnv.status;
+      severityFilter = filtersOrEnv.severity;
+      priorityFilter = filtersOrEnv.priority;
+      leadInvestigatorFilter = filtersOrEnv.leadInvestigator;
+      searchFilter = filtersOrEnv.search;
+      if (filtersOrEnv.limit) limit = Math.min(500, Math.max(1, filtersOrEnv.limit));
+      if (filtersOrEnv.offset) offset = Math.max(0, filtersOrEnv.offset);
+    }
+
+    let query = this.client
       .from('incidents')
       .select('*')
-      .eq('organization_id', orgId)
-      .eq('environment', environment)
-      .order('created_at', { ascending: false });
+      .eq('organization_id', orgId);
+
+    if (env && env !== 'all') {
+      query = query.eq('environment', env);
+    }
+    if (statusFilter && statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
+    }
+    if (severityFilter && severityFilter !== 'all') {
+      query = query.eq('severity', severityFilter);
+    }
+    if (priorityFilter && priorityFilter !== 'all') {
+      query = query.eq('priority', priorityFilter);
+    }
+    if (leadInvestigatorFilter) {
+      query = query.eq('lead_investigator', leadInvestigatorFilter);
+    }
+    if (searchFilter) {
+      const sanitized = searchFilter.trim();
+      query = query.or(`title.ilike.%${sanitized}%,description.ilike.%${sanitized}%,id.ilike.%${sanitized}%`);
+    }
+
+    const { data: incidents, error: incError } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
     if (incError) throw new Error(`Database error fetching incidents: ${incError.message}`);
     if (!incidents || incidents.length === 0) return [];
 
@@ -1344,13 +1415,38 @@ export class Database {
     const existing = await this.getIncidentById(id, orgId);
     if (!existing) throw new Error('Incident not found or cross-tenant access denied');
 
+    // Status transition validation
+    if (updates.status !== undefined && updates.status !== existing.status) {
+      if (!this.isValidIncidentTransition(existing.status, updates.status)) {
+        throw new Error(`Invalid status transition from '${existing.status}' to '${updates.status}'.`);
+      }
+    }
+
     const row: Record<string, any> = { updated_at: new Date().toISOString() };
     if (updates.title !== undefined) row.title = updates.title;
     if (updates.description !== undefined) row.description = updates.description;
     if (updates.severity !== undefined) row.severity = updates.severity;
     if (updates.status !== undefined) row.status = updates.status;
     if (updates.priority !== undefined) row.priority = updates.priority;
-    if (updates.leadInvestigator !== undefined) row.lead_investigator = updates.leadInvestigator;
+
+    // Lead investigator assignment validation
+    if (updates.leadInvestigator !== undefined) {
+      if (updates.leadInvestigator === null || updates.leadInvestigator === '') {
+        row.lead_investigator = null;
+      } else {
+        const member = await this.getMember(orgId || existing.organizationId, updates.leadInvestigator);
+        if (!member) {
+          throw new Error('Target lead investigator is not a member of this organization.');
+        }
+        row.lead_investigator = updates.leadInvestigator;
+        const profile = await this.getProfileById(updates.leadInvestigator);
+        if (profile) {
+          const currentSummary = (existing as any).summaryReport || {};
+          row.summary_report = { ...currentSummary, leadInvestigatorName: profile.fullName || profile.email };
+        }
+      }
+    }
+
     if (updates.lessonsLearned !== undefined) row.lessons_learned = updates.lessonsLearned;
 
     let query = this.client
@@ -1364,10 +1460,17 @@ export class Database {
     if (error) throw new Error(`Database error updating incident: ${error.message}`);
 
     if (updates.linkedAlertIds !== undefined) {
+      // Validate all alert IDs belong to this org
+      const validAlerts = await Promise.all(
+        updates.linkedAlertIds.map(aid => this.getAlertById(aid, orgId || existing.organizationId))
+      );
+      const targetOrg = orgId || existing.organizationId;
+      const verifiedIds = validAlerts.filter(a => a && a.organizationId === targetOrg).map(a => a!.id);
+
       await this.client.from('incident_alerts').delete().eq('incident_id', id);
-      if (updates.linkedAlertIds.length > 0) {
+      if (verifiedIds.length > 0) {
         await this.client.from('incident_alerts').insert(
-          updates.linkedAlertIds.map(aid => ({ incident_id: id, alert_id: aid }))
+          verifiedIds.map(aid => ({ incident_id: id, alert_id: aid }))
         );
       }
     }
@@ -1384,7 +1487,7 @@ export class Database {
     const alert = await this.getAlertById(alertId, orgId);
     if (!alert) throw new Error('Alert not found or cross-tenant access denied');
 
-    // Upsert incident_alert link
+    // Upsert incident_alert link (handles duplicate safely)
     await this.client
       .from('incident_alerts')
       .upsert({
@@ -1409,9 +1512,16 @@ export class Database {
     return updated;
   }
 
-  public async addIncidentTask(incidentId: string, title: string, assignedTo?: string, orgId?: string): Promise<Incident> {
+  public async addIncidentTask(incidentId: string, title: string, assignedTo?: string | null, orgId?: string): Promise<Incident> {
     const inc = await this.getIncidentById(incidentId, orgId);
     if (!inc) throw new Error('Incident not found or cross-tenant access denied');
+
+    if (assignedTo) {
+      const member = await this.getMember(orgId || inc.organizationId, assignedTo);
+      if (!member) {
+        throw new Error('Task assignee is not a member of this organization.');
+      }
+    }
 
     const { error } = await this.client
       .from('incident_tasks')
