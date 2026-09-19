@@ -1,0 +1,6 @@
+{
+  "name": "VRSOC — Real-World Enterprise SOC Platform",
+  "description": "Production-grade Security Operations Center platform with real endpoint telemetry, detection rules, PhishGuard ML, and grounded AI analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

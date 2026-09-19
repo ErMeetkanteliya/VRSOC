@@ -1,0 +1,638 @@
+{
+  "organizations": [
+    {
+      "id": "ea69b866-8ba0-4df9-a5c8-360748a240ca",
+      "name": "VRsecurity",
+      "slug": "vrsecurity-mu85c8pr",
+      "vrSocKey": "90952D6805A3DF",
+      "status": "active",
+      "retentionDays": 90,
+      "createdAt": "2026-09-19T08:49:38.847Z",
+      "updatedAt": "2026-09-19T08:49:38.847Z"
+    },
+    {
+      "id": "22032c3b-dc93-4158-9fb1-4a6c69cdd401",
+      "name": "Vance Cyber Defense",
+      "slug": "vance-cyber-defense-mu8abpbu",
+      "vrSocKey": "8568F62F5077EE",
+      "status": "active",
+      "retentionDays": 90,
+      "createdAt": "2026-09-19T11:09:11.802Z",
+      "updatedAt": "2026-09-19T11:09:11.802Z"
+    },
+    {
+      "id": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "name": "Stone Defense Systems",
+      "slug": "stone-defense-systems-mu8abxqe",
+      "vrSocKey": "0CA1A97CD67B5F",
+      "status": "active",
+      "retentionDays": 90,
+      "createdAt": "2026-09-19T11:09:22.694Z",
+      "updatedAt": "2026-09-19T11:09:22.694Z"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "8ed6df10-83f4-4de1-a646-9a81a69427f8",
+      "email": "ishasonaria568@gmail.com",
+      "fullName": "Isha Sonaria",
+      "phoneNumber": "+91 7096495430",
+      "emailVerified": false,
+      "phoneVerified": false,
+      "mfaEnabled": false,
+      "role": "Organization Admin",
+      "createdAt": "2026-09-19T08:49:38.847Z",
+      "updatedAt": "2026-09-19T08:49:38.847Z"
+    },
+    {
+      "id": "ee73a1ce-202b-478f-b373-b0e8108ac9a5",
+      "email": "alice.vance@vrsoc.security",
+      "fullName": "Alice Vance",
+      "phoneNumber": "+15550198273",
+      "emailVerified": true,
+      "phoneVerified": true,
+      "mfaEnabled": false,
+      "passwordHash": "7c162152a671d40cda8b551ca6d4134714a839c775af16e081a9669f6623a33a5414d638ed1432172a4c4fd311b75635867af6783a568fa4cd3d0a5b78826ed3",
+      "passwordSalt": "41f0ba0a281b6ff2ef8a69472ed60eda",
+      "role": "Organization Admin",
+      "createdAt": "2026-09-19T11:09:11.873Z",
+      "updatedAt": "2026-09-19T11:09:11.899Z"
+    },
+    {
+      "id": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "email": "bob.stone@vrsoc.security",
+      "fullName": "Bob Stone",
+      "phoneNumber": "+15550199999",
+      "emailVerified": true,
+      "phoneVerified": true,
+      "mfaEnabled": true,
+      "passwordHash": "200f37d38ff806645a0b433305d26929c72b18641c34e8a0baf6d191f2bec14f4e1f41e9ed4882eac0d30103ef5ec14cf63541ddb88e93ebae95e39e9063d6aa",
+      "passwordSalt": "875cff64f81fc3b52b0ee75d281a85b4",
+      "role": "Organization Admin",
+      "createdAt": "2026-09-19T11:09:22.783Z",
+      "updatedAt": "2026-09-19T11:09:22.819Z",
+      "mfaSecret": "JBSWY3DPEHPK3PXP"
+    }
+  ],
+  "organizationMembers": [
+    {
+      "id": "5f1c20d8-4c11-419b-b617-3e87391a3dda",
+      "organizationId": "ea69b866-8ba0-4df9-a5c8-360748a240ca",
+      "userId": "8ed6df10-83f4-4de1-a646-9a81a69427f8",
+      "role": "Organization Admin",
+      "createdAt": "2026-09-19T08:49:38.847Z"
+    },
+    {
+      "id": "90c7b5d4-d88d-48da-86e5-d095fc968d6b",
+      "organizationId": "22032c3b-dc93-4158-9fb1-4a6c69cdd401",
+      "userId": "ee73a1ce-202b-478f-b373-b0e8108ac9a5",
+      "role": "Organization Admin",
+      "createdAt": "2026-09-19T11:09:11.873Z"
+    },
+    {
+      "id": "0f07f95a-f2b0-46ed-86f8-bc5bb964624d",
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "role": "Organization Admin",
+      "createdAt": "2026-09-19T11:09:22.783Z"
+    }
+  ],
+  "userSessions": [
+    {
+      "id": "4f7487a9-0ddd-4250-a4ae-509c63bee5cb",
+      "userId": "8ed6df10-83f4-4de1-a646-9a81a69427f8",
+      "organizationId": "ea69b866-8ba0-4df9-a5c8-360748a240ca",
+      "sessionToken": "f48a09eddb1c966a73ab2985c75cbe6a82e4d38e37504c94caa1677915c06a09",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "expiresAt": "2026-09-26T08:49:38.849Z",
+      "createdAt": "2026-09-19T08:49:38.849Z"
+    },
+    {
+      "id": "ce013b3f-793b-4a90-87b6-f9fd6880c305",
+      "userId": "ee73a1ce-202b-478f-b373-b0e8108ac9a5",
+      "organizationId": "22032c3b-dc93-4158-9fb1-4a6c69cdd401",
+      "sessionToken": "364d134e7f5328c3bfe06e7af3e61a777730d24bf9917c8eb240aae8b7cd3795",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "node",
+      "expiresAt": "2026-09-26T11:09:11.875Z",
+      "createdAt": "2026-09-19T11:09:11.875Z"
+    },
+    {
+      "id": "209bc5b1-948b-421b-9864-2b04f1ed704a",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "sessionToken": "fa4343b0d887305f118592aab0fe9c68660578891763828cdd2ef8790aae8046",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "node",
+      "expiresAt": "2026-09-26T11:09:22.784Z",
+      "createdAt": "2026-09-19T11:09:22.784Z"
+    },
+    {
+      "id": "01e13247-605c-4827-a0ca-2168c935b874",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "sessionToken": "2f7962e283b1b7ccbd15d76600a6abd3267947ca848651ca5af10534b38c1f34",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "node",
+      "expiresAt": "2026-09-26T11:09:22.898Z",
+      "createdAt": "2026-09-19T11:09:22.898Z"
+    },
+    {
+      "id": "039d50e9-390a-4ba8-a9b5-d60b0d737eb0",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "sessionToken": "ed3bfc1652d7e34380ff018108917ba35fa5e26bfa27bce4643b5be8c5684e61",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "node",
+      "expiresAt": "2026-09-26T11:09:33.618Z",
+      "createdAt": "2026-09-19T11:09:33.618Z"
+    }
+  ],
+  "agents": [
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "name": "Workstation SOC-Primary",
+      "hostname": "vrsoc-workstation-01",
+      "os": "Linux",
+      "osVersion": "Ubuntu 22.04 LTS",
+      "architecture": "x86_64",
+      "ipAddress": "192.168.10.45",
+      "agentVersion": "1.4.0",
+      "enrollmentKey": "0CA1A97CD67B5F",
+      "status": "online",
+      "lastSeen": "2026-09-19T11:09:22.911Z",
+      "cpuUsage": 24,
+      "ramUsage": 42,
+      "diskUsage": 35,
+      "tags": [
+        "workstation",
+        "linux"
+      ],
+      "policy": {
+        "scanIntervalSec": 15,
+        "isolationMode": false
+      },
+      "health": "healthy",
+      "environment": "production",
+      "id": "5e2ec8c3-e4b5-4d2d-ab8f-5b4bc89989da",
+      "agentToken": "agt_f43c61df074a452148994839a2b7ad49c284304cec99a8eb",
+      "createdAt": "2026-09-19T11:09:22.912Z",
+      "updatedAt": "2026-09-19T11:09:22.912Z"
+    }
+  ],
+  "endpointEvents": [
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "agentId": "5e2ec8c3-e4b5-4d2d-ab8f-5b4bc89989da",
+      "environment": "production",
+      "eventType": "process",
+      "severity": "high",
+      "source": "simulation",
+      "data": {
+        "action": "EXECUTE",
+        "processName": "powershell.exe",
+        "commandLine": "powershell.exe -NoP -NonI -W Hidden -Enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAApAA==",
+        "parentPid": 4920,
+        "parentProcess": "cmd.exe",
+        "user": "Bob Stone",
+        "hostname": "vrsoc-workstation-01"
+      },
+      "eventTime": "2026-09-19T11:09:22.912Z",
+      "schemaVersion": "1.0",
+      "id": "0c8aca5a-37f3-4b2b-9f0f-4f0d19c0b4ea",
+      "ingestionTime": "2026-09-19T11:09:22.912Z"
+    }
+  ],
+  "detectionRules": [
+    {
+      "id": "RULE-AUTH-001",
+      "organizationId": null,
+      "name": "Multiple Authentication Failures (Brute Force Indicator)",
+      "description": "Triggers when 5 or more failed logon attempts occur against a single host or account within a 5-minute window.",
+      "severity": "high",
+      "riskScore": 78,
+      "category": "Credential Access",
+      "mitreTactic": "Credential Access",
+      "mitreTechniqueId": "T1110.001",
+      "mitreTechniqueName": "Brute Force: Password Guessing",
+      "conditions": {
+        "eventType": "auth",
+        "status": "failure",
+        "threshold": 5,
+        "windowMinutes": 5
+      },
+      "remediationSteps": [
+        "Identify the source IP address or workstation originating the authentication failures.",
+        "Temporarily lock or reset the affected account credentials if unauthorized.",
+        "Review network edge logs to determine if external proxy/VPN was used."
+      ],
+      "enabled": true,
+      "createdAt": "2026-09-19T08:46:14.672Z"
+    },
+    {
+      "id": "RULE-AUTH-002",
+      "organizationId": null,
+      "name": "Account Lockout Security Event",
+      "description": "Triggers when an endpoint or directory service logs an explicit user account lockout event.",
+      "severity": "medium",
+      "riskScore": 55,
+      "category": "Credential Access",
+      "mitreTactic": "Credential Access",
+      "mitreTechniqueId": "T1110.004",
+      "mitreTechniqueName": "Brute Force: Account Lockout",
+      "conditions": {
+        "eventType": "auth",
+        "subType": "lockout"
+      },
+      "remediationSteps": [
+        "Contact user to verify whether lockout was caused by user error or external attack.",
+        "Inspect endpoint audit logs for malicious background services caching stale credentials."
+      ],
+      "enabled": true,
+      "createdAt": "2026-09-19T08:46:14.673Z"
+    },
+    {
+      "id": "RULE-PROC-001",
+      "organizationId": null,
+      "name": "Suspicious / Obfuscated PowerShell Execution",
+      "description": "Detects PowerShell or bash processes invoked with encoded commands, hidden windows, or execution bypass flags.",
+      "severity": "critical",
+      "riskScore": 92,
+      "category": "Execution",
+      "mitreTactic": "Execution",
+      "mitreTechniqueId": "T1059.001",
+      "mitreTechniqueName": "Command and Scripting Interpreter: PowerShell",
+      "conditions": {
+        "eventType": "process",
+        "patterns": [
+          "-enc",
+          "-encodedcommand",
+          "-w hidden",
+          "-nop",
+          "bypass",
+          "downloadstring",
+          "iex("
+        ]
+      },
+      "remediationSteps": [
+        "Isolate the host immediately from the network segment to prevent lateral movement.",
+        "Dump and decode the base64 or obfuscated command line parameter.",
+        "Inspect parent process tree to identify the dropper or vector."
+      ],
+      "enabled": true,
+      "createdAt": "2026-09-19T08:46:14.673Z"
+    },
+    {
+      "id": "RULE-PERS-001",
+      "organizationId": null,
+      "name": "Persistence Indicator: Scheduled Task or Cron Creation",
+      "description": "Detects execution of schtasks, crontab, or systemd timer modification to establish persistent autostart.",
+      "severity": "high",
+      "riskScore": 80,
+      "category": "Persistence",
+      "mitreTactic": "Persistence",
+      "mitreTechniqueId": "T1053.005",
+      "mitreTechniqueName": "Scheduled Task/Job: Scheduled Task",
+      "conditions": {
+        "eventType": "process",
+        "commandKeywords": [
+          "schtasks /create",
+          "crontab -e",
+          "systemctl enable --now"
+        ]
+      },
+      "remediationSteps": [
+        "Inspect the created task path and executable payload.",
+        "Verify digital signature and authorization of the scheduled binary.",
+        "Remove the unauthorized task and terminate any active spawned PIDs."
+      ],
+      "enabled": true,
+      "createdAt": "2026-09-19T08:46:14.673Z"
+    },
+    {
+      "id": "RULE-NET-001",
+      "organizationId": null,
+      "name": "Network Reconnaissance / Port Scanning Indicator",
+      "description": "Detects rapid outbound network connection attempts across multiple destination ports within short timeframe.",
+      "severity": "medium",
+      "riskScore": 65,
+      "category": "Discovery",
+      "mitreTactic": "Discovery",
+      "mitreTechniqueId": "T1046",
+      "mitreTechniqueName": "Network Service Discovery",
+      "conditions": {
+        "eventType": "network",
+        "connectionRate": "high",
+        "portSpan": 15
+      },
+      "remediationSteps": [
+        "Identify if scanning utility (nmap, masscan, netcat) is present on the host.",
+        "Review firewall logs for internal subnet enumeration."
+      ],
+      "enabled": true,
+      "createdAt": "2026-09-19T08:46:14.673Z"
+    },
+    {
+      "id": "RULE-DEV-001",
+      "organizationId": null,
+      "name": "Unauthorized Removable Storage / USB Mass Storage Mount",
+      "description": "Detects mounting of external USB mass storage devices on monitored defensive endpoints.",
+      "severity": "low",
+      "riskScore": 40,
+      "category": "Initial Access",
+      "mitreTactic": "Initial Access",
+      "mitreTechniqueId": "T1091",
+      "mitreTechniqueName": "Replication Through Removable Media",
+      "conditions": {
+        "eventType": "usb",
+        "action": "mount"
+      },
+      "remediationSteps": [
+        "Confirm whether endpoint is authorized for removable storage under organization DLP policy.",
+        "Check file creation logs on the mounted drive for data exfiltration indicators."
+      ],
+      "enabled": true,
+      "createdAt": "2026-09-19T08:46:14.673Z"
+    },
+    {
+      "id": "RULE-PHISH-001",
+      "organizationId": null,
+      "name": "High-Risk Phishing URL Ingestion (PhishGuard ML)",
+      "description": "Detects URLs classified as Phishing with high model risk score (>= 70) via PhishGuard ML feature analysis.",
+      "severity": "high",
+      "riskScore": 88,
+      "category": "Initial Access",
+      "mitreTactic": "Initial Access",
+      "mitreTechniqueId": "T1566.002",
+      "mitreTechniqueName": "Phishing: Spearphishing Link",
+      "conditions": {
+        "eventType": "phishing",
+        "classification": "Phishing",
+        "minScore": 70
+      },
+      "remediationSteps": [
+        "Block the phishing domain at the enterprise DNS resolver / proxy level.",
+        "Check mail gateway and proxy logs for any other users who visited the URL.",
+        "Force password reset for any users who submitted credentials to the landing page."
+      ],
+      "enabled": true,
+      "createdAt": "2026-09-19T08:46:14.673Z"
+    },
+    {
+      "id": "RULE-HEART-001",
+      "organizationId": null,
+      "name": "Endpoint Agent Heartbeat Loss",
+      "description": "Triggers when a previously active enrolled endpoint agent stops reporting heartbeats for longer than threshold.",
+      "severity": "medium",
+      "riskScore": 50,
+      "category": "Defense Evasion",
+      "mitreTactic": "Defense Evasion",
+      "mitreTechniqueId": "T1562.001",
+      "mitreTechniqueName": "Impair Defenses: Disable or Modify Tools",
+      "conditions": {
+        "type": "agent_heartbeat_loss",
+        "timeoutSeconds": 180
+      },
+      "remediationSteps": [
+        "Verify if host was shutdown or put to sleep by the authorized user.",
+        "Inspect host services to confirm VRSOC agent service was not terminated by malware."
+      ],
+      "enabled": true,
+      "createdAt": "2026-09-19T08:46:14.673Z"
+    }
+  ],
+  "alerts": [
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "agentId": "5e2ec8c3-e4b5-4d2d-ab8f-5b4bc89989da",
+      "ruleId": "RULE-PROC-001",
+      "title": "Suspicious PowerShell Execution on vrsoc-workstation-01",
+      "description": "Process 'powershell.exe' was executed with obfuscated or policy bypass command line arguments.",
+      "severity": "critical",
+      "riskScore": 92,
+      "status": "open",
+      "hostname": "vrsoc-workstation-01",
+      "username": "Bob Stone",
+      "sourceIp": "192.168.10.45",
+      "mitreTactic": "Execution",
+      "mitreTechnique": "Command and Scripting Interpreter: PowerShell",
+      "mitreId": "T1059.001",
+      "evidence": [
+        {
+          "type": "Process Telemetry",
+          "description": "Command line: powershell.exe -NoP -NonI -W Hidden -Enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAApAA==",
+          "timestamp": "2026-09-19T11:09:22.912Z",
+          "data": {
+            "action": "EXECUTE",
+            "processName": "powershell.exe",
+            "commandLine": "powershell.exe -NoP -NonI -W Hidden -Enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAApAA==",
+            "parentPid": 4920,
+            "parentProcess": "cmd.exe",
+            "user": "Bob Stone",
+            "hostname": "vrsoc-workstation-01"
+          },
+          "state": "CONFIRMED"
+        },
+        {
+          "type": "Parent Process Tree",
+          "description": "Parent PID: 4920, Parent Process: cmd.exe",
+          "timestamp": "2026-09-19T11:09:22.912Z",
+          "data": {
+            "parentPid": 4920,
+            "parentProcess": "cmd.exe"
+          },
+          "state": "CONFIRMED"
+        }
+      ],
+      "triggerEventIds": [
+        "0c8aca5a-37f3-4b2b-9f0f-4f0d19c0b4ea"
+      ],
+      "environment": "production",
+      "id": "ALT-20260919-0001",
+      "comments": [],
+      "createdAt": "2026-09-19T11:09:22.913Z",
+      "updatedAt": "2026-09-19T11:09:22.913Z"
+    }
+  ],
+  "incidents": [],
+  "phishingScans": [
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "url": "https://secure-login-microsoft.suspicious-domain-123.com/update",
+      "normalizedUrl": "https://secure-login-microsoft.suspicious-domain-123.com/update",
+      "classification": "Suspicious",
+      "riskScore": 51,
+      "features": {
+        "urlLength": 63,
+        "hasIpAddress": false,
+        "isShortener": false,
+        "hasAtSymbol": false,
+        "doubleSlashRedirect": false,
+        "hasPrefixSuffix": true,
+        "subdomainsCount": 1,
+        "isHttps": true,
+        "suspiciousTld": false,
+        "hasPort": false,
+        "httpsInDomain": false,
+        "sensitiveKeywordsFound": [
+          "login",
+          "update",
+          "microsoft",
+          "secure"
+        ],
+        "hexEncodingCount": 0
+      },
+      "reasons": [
+        "Hostname contains hyphens typical of credential harvesting typosquatting.",
+        "Contains high-risk credential keywords: [login, update, microsoft, secure]."
+      ],
+      "id": "e8e44649-ab68-4ea7-abfc-8a4a49f316c0",
+      "createdAt": "2026-09-19T11:09:33.638Z"
+    }
+  ],
+  "indicators": [],
+  "auditLogs": [
+    {
+      "organizationId": "ea69b866-8ba0-4df9-a5c8-360748a240ca",
+      "userId": "8ed6df10-83f4-4de1-a646-9a81a69427f8",
+      "userEmail": "ishasonaria568@gmail.com",
+      "action": "USER_SIGNUP",
+      "targetType": "user",
+      "targetId": "8ed6df10-83f4-4de1-a646-9a81a69427f8",
+      "details": {
+        "organizationName": "VRsecurity",
+        "role": "Organization Admin"
+      },
+      "ipAddress": "127.0.0.1",
+      "id": "c31c2dec-b14c-4b7e-a2f7-823ecd7e805d",
+      "createdAt": "2026-09-19T08:49:38.849Z"
+    },
+    {
+      "organizationId": "22032c3b-dc93-4158-9fb1-4a6c69cdd401",
+      "userId": "ee73a1ce-202b-478f-b373-b0e8108ac9a5",
+      "userEmail": "alice.vance@vrsoc.security",
+      "action": "USER_SIGNUP",
+      "targetType": "user",
+      "targetId": "ee73a1ce-202b-478f-b373-b0e8108ac9a5",
+      "details": {
+        "organizationName": "Vance Cyber Defense",
+        "role": "Organization Admin"
+      },
+      "ipAddress": "127.0.0.1",
+      "id": "3f43f035-7bb5-48ae-93ab-2e8106d32f75",
+      "createdAt": "2026-09-19T11:09:11.875Z"
+    },
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "userEmail": "bob.stone@vrsoc.security",
+      "action": "USER_SIGNUP",
+      "targetType": "user",
+      "targetId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "details": {
+        "organizationName": "Stone Defense Systems",
+        "role": "Organization Admin"
+      },
+      "ipAddress": "127.0.0.1",
+      "id": "b4314341-c6d3-481d-8f75-82c238512205",
+      "createdAt": "2026-09-19T11:09:22.785Z"
+    },
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "userEmail": "bob.stone@vrsoc.security",
+      "action": "USER_LOGIN",
+      "targetType": "user",
+      "targetId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "details": {
+        "role": "Organization Admin"
+      },
+      "ipAddress": "127.0.0.1",
+      "id": "8f360320-2bff-4425-84c6-d669176b6b28",
+      "createdAt": "2026-09-19T11:09:22.898Z"
+    },
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "userEmail": "bob.stone@vrsoc.security",
+      "action": "SIMULATE_THREAT_SCENARIO",
+      "targetType": "telemetry_event",
+      "targetId": "0c8aca5a-37f3-4b2b-9f0f-4f0d19c0b4ea",
+      "details": {
+        "scenario": "powershell_obfuscated",
+        "agent": "vrsoc-workstation-01",
+        "triggeredAlertId": "ALT-20260919-0001"
+      },
+      "ipAddress": "127.0.0.1",
+      "id": "a50f4051-9393-492b-b7cd-576c9901fcd7",
+      "createdAt": "2026-09-19T11:09:22.913Z"
+    },
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "userEmail": "bob.stone@vrsoc.security",
+      "action": "USER_LOGIN",
+      "targetType": "user",
+      "targetId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "details": {
+        "role": "Organization Admin"
+      },
+      "ipAddress": "127.0.0.1",
+      "id": "c508cb10-1ef3-4bcf-8214-0e15474ff62b",
+      "createdAt": "2026-09-19T11:09:33.619Z"
+    },
+    {
+      "organizationId": "97e9fcae-b4b8-4f30-a669-9fae507a5942",
+      "userId": "6f935ea0-0da1-47cd-b3bf-c97f2aa69a1c",
+      "userEmail": "bob.stone@vrsoc.security",
+      "action": "PHISHGUARD_SCAN",
+      "targetType": "phishing_scan",
+      "targetId": "e8e44649-ab68-4ea7-abfc-8a4a49f316c0",
+      "details": {
+        "url": "https://secure-login-microsoft.suspicious-domain-123.com/update",
+        "classification": "Suspicious",
+        "riskScore": 51
+      },
+      "ipAddress": "127.0.0.1",
+      "id": "e561d194-8dbd-419c-9658-344535cafdf0",
+      "createdAt": "2026-09-19T11:09:33.638Z"
+    }
+  ],
+  "reports": [],
+  "otpStore": {
+    "ishasonaria568@gmail.com": {
+      "attempts": 0,
+      "lastSentAt": 1789807778848,
+      "expiresAt": 1789808378848,
+      "emailOtp": "587126"
+    },
+    "+91 7096495430": {
+      "attempts": 0,
+      "lastSentAt": 1789807778848,
+      "expiresAt": 1789808378848,
+      "phoneOtp": "594475"
+    },
+    "alice.vance@vrsoc.security": {
+      "attempts": 0,
+      "lastSentAt": 1789816151874,
+      "expiresAt": 1789816751874
+    },
+    "+15550198273": {
+      "attempts": 0,
+      "lastSentAt": 1789816151874,
+      "expiresAt": 1789816751874
+    },
+    "bob.stone@vrsoc.security": {
+      "attempts": 0,
+      "lastSentAt": 1789816162784,
+      "expiresAt": 1789816762784
+    },
+    "+15550199999": {
+      "attempts": 0,
+      "lastSentAt": 1789816162784,
+      "expiresAt": 1789816762784
+    }
+  }
+}
