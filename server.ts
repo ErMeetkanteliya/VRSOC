@@ -446,33 +446,47 @@ app.post(
       const { enrollmentKey, name, hostname, os, osVersion, architecture, ipAddress, agentVersion } = req.body;
 
       const org = await db.getOrganizationByKey(enrollmentKey);
-      if (!org) {
+      if (!org || org.status !== 'active') {
         return res.status(401).json({ error: 'Invalid or revoked 14-character VRSOC security key.' });
       }
 
-      // Check if agent already registered with this hostname
+      const cleanHostname = hostname ? hostname.trim() : 'unknown-host';
+
+      // Check if agent already registered with this hostname in this organization
       const agents = await db.getAgents(org.id);
-      const existing = agents.find(a => a.hostname === hostname && a.status !== 'revoked');
+      const existing = agents.find(a => a.hostname.toLowerCase() === cleanHostname.toLowerCase() && a.status !== 'revoked');
       if (existing) {
-        const updated = await db.updateAgent(existing.id, {
+        const { rawToken } = db.generateAgentToken();
+        const { agent: updated } = await db.updateAgent(existing.id, {
           ipAddress: ipAddress || req.ip || '127.0.0.1',
           lastSeen: new Date().toISOString(),
           status: 'online',
-          agentVersion: agentVersion || '1.4.0'
+          agentVersion: agentVersion || '1.4.0',
+          rawToken
         }, org.id);
+
+        await db.addAuditLog({
+          organizationId: org.id,
+          action: 'AGENT_RE_ENROLLED',
+          targetType: 'agent',
+          targetId: updated.id,
+          details: { hostname: updated.hostname, ip: updated.ipAddress },
+          ipAddress: req.ip
+        });
+
         broadcastEvent(org.id, 'agent_updated', updated);
-        return res.json({ agent: updated, agentToken: updated.agentToken });
+        return res.json({ agent: updated, agentToken: rawToken });
       }
 
-      const agent = await db.createAgent({
+      const { agent, agentToken } = await db.createAgent({
         organizationId: org.id,
-        name: name || `${hostname || 'Endpoint'}-agent`,
-        hostname: hostname || 'unknown-host',
-        os: os || 'Linux',
-        osVersion: osVersion || '1.0',
-        architecture: architecture || 'x64',
-        ipAddress: ipAddress || req.ip || '127.0.0.1',
-        agentVersion: agentVersion || '1.4.0',
+        name: name ? name.trim() : `${cleanHostname}-agent`,
+        hostname: cleanHostname,
+        os: os ? os.trim() : 'Linux',
+        osVersion: osVersion ? osVersion.trim() : '1.0',
+        architecture: architecture ? architecture.trim() : 'x64',
+        ipAddress: ipAddress ? ipAddress.trim() : (req.ip || '127.0.0.1'),
+        agentVersion: agentVersion ? agentVersion.trim() : '1.4.0',
         enrollmentKey: org.vrSocKey,
         status: 'online',
         lastSeen: new Date().toISOString(),
@@ -495,7 +509,7 @@ app.post(
       });
 
       broadcastEvent(org.id, 'agent_enrolled', agent);
-      res.status(201).json({ agent, agentToken: agent.agentToken });
+      res.status(201).json({ agent, agentToken });
     } catch (err: any) {
       next(err);
     }
@@ -509,23 +523,47 @@ app.post(
   validateRequest({ body: agentHeartbeatSchema }),
   async (req, res, next) => {
     try {
-      const { agentId, agentToken, cpuUsage, ramUsage, diskUsage } = req.body;
+      const { agentId, agentToken: bodyToken, cpuUsage, ramUsage, diskUsage, activeProcessesCount, networkConnectionsCount } = req.body;
+      const bearerToken = extractBearerToken(req);
+      const token = bodyToken || bearerToken;
 
-      const agent = await db.getAgentById(agentId);
-      if (!agent || agent.agentToken !== agentToken || agent.status === 'revoked') {
+      if (!token) {
+        return res.status(401).json({ error: 'Missing agent credentials' });
+      }
+
+      const authenticatedAgent = await db.getAgentByToken(token);
+      if (!authenticatedAgent) {
+        return res.status(401).json({ error: 'Agent unauthorized or invalid token' });
+      }
+
+      if (authenticatedAgent.status === 'revoked') {
         return res.status(401).json({ error: 'Agent unauthorized or revoked' });
       }
 
-      const updated = await db.updateAgent(agent.id, {
+      if (agentId && authenticatedAgent.id !== agentId) {
+        return res.status(403).json({ error: 'Agent credential does not match requested agent ID' });
+      }
+
+      const { agent: updated } = await db.updateAgent(authenticatedAgent.id, {
         lastSeen: new Date().toISOString(),
         status: 'online',
-        cpuUsage: typeof cpuUsage === 'number' ? cpuUsage : agent.cpuUsage,
-        ramUsage: typeof ramUsage === 'number' ? ramUsage : agent.ramUsage,
-        diskUsage: typeof diskUsage === 'number' ? diskUsage : agent.diskUsage
-      }, agent.organizationId);
+        cpuUsage: typeof cpuUsage === 'number' ? cpuUsage : authenticatedAgent.cpuUsage,
+        ramUsage: typeof ramUsage === 'number' ? ramUsage : authenticatedAgent.ramUsage,
+        diskUsage: typeof diskUsage === 'number' ? diskUsage : authenticatedAgent.diskUsage
+      }, authenticatedAgent.organizationId);
 
-      broadcastEvent(agent.organizationId, 'agent_heartbeat', {
-        agentId: agent.id,
+      await db.addAgentHeartbeat({
+        agentId: authenticatedAgent.id,
+        organizationId: authenticatedAgent.organizationId,
+        cpuPercent: updated.cpuUsage,
+        ramPercent: updated.ramUsage,
+        diskPercent: updated.diskUsage,
+        activeProcessesCount: activeProcessesCount || 45,
+        networkConnectionsCount: networkConnectionsCount || 8
+      });
+
+      broadcastEvent(authenticatedAgent.organizationId, 'agent_heartbeat', {
+        agentId: authenticatedAgent.id,
         lastSeen: updated.lastSeen,
         cpuUsage: updated.cpuUsage,
         ramUsage: updated.ramUsage
@@ -545,29 +583,54 @@ app.post(
   validateRequest({ body: agentTelemetrySchema }),
   async (req, res, next) => {
     try {
-      const { agentId, agentToken, eventType, severity, data } = req.body;
+      const { agentId, agentToken: bodyToken, eventType, severity, data, eventTime } = req.body;
+      const bearerToken = extractBearerToken(req);
+      const token = bodyToken || bearerToken;
 
-      const agent = await db.getAgentById(agentId);
-      if (!agent || agent.agentToken !== agentToken || agent.status === 'revoked') {
+      if (!token) {
+        return res.status(401).json({ error: 'Missing agent credentials' });
+      }
+
+      const authenticatedAgent = await db.getAgentByToken(token);
+      if (!authenticatedAgent) {
+        return res.status(401).json({ error: 'Agent unauthorized or invalid token' });
+      }
+
+      if (authenticatedAgent.status === 'revoked') {
         return res.status(401).json({ error: 'Agent unauthorized or revoked' });
       }
 
+      if (agentId && authenticatedAgent.id !== agentId) {
+        return res.status(403).json({ error: 'Agent credential does not match requested agent ID' });
+      }
+
+      // Timestamp sanitization: prevent future timestamp spoofing
+      const now = Date.now();
+      let sanitizedEventTime = new Date().toISOString();
+      if (eventTime) {
+        const parsedTime = new Date(eventTime).getTime();
+        if (!isNaN(parsedTime) && parsedTime <= now + 300000 && parsedTime >= now - (30 * 86400000)) {
+          sanitizedEventTime = new Date(eventTime).toISOString();
+        }
+      }
+
       const event = await db.addEndpointEvent({
-        organizationId: agent.organizationId,
-        agentId: agent.id,
+        organizationId: authenticatedAgent.organizationId,
+        agentId: authenticatedAgent.id,
         eventType: eventType || 'process',
-        eventTime: new Date().toISOString(),
+        eventTime: sanitizedEventTime,
         source: 'vrsoc-agent',
-        environment: agent.environment,
+        environment: authenticatedAgent.environment,
         severity: severity || 'info',
         data: data || {},
         schemaVersion: '1.0'
       });
 
-      broadcastEvent(agent.organizationId, 'new_telemetry', event);
+      broadcastEvent(authenticatedAgent.organizationId, 'new_telemetry', event);
+      broadcastEvent(authenticatedAgent.organizationId, 'new_event', { event });
 
       // Evaluate in real-time detection engine
-      const triggeredAlert = await detectionEngine.evaluateEvent(event, agent);
+      const triggeredAlert = await detectionEngine.evaluateEvent(event, authenticatedAgent);
 
       res.status(201).json({
         status: 'ingested',

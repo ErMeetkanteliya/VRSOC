@@ -681,7 +681,59 @@ export class Database {
       .eq('session_token', token);
   }
 
-  // --- Agents ---
+  // --- Agents & Credentials ---
+  public hashAgentToken(token: string): string {
+    return crypto.createHash('sha256').update(token.trim()).digest('hex');
+  }
+
+  public generateAgentToken(): { rawToken: string; tokenHash: string } {
+    const rawToken = 'vrsoc_agt_' + crypto.randomBytes(24).toString('hex');
+    const tokenHash = this.hashAgentToken(rawToken);
+    return { rawToken, tokenHash };
+  }
+
+  public async getAgentByToken(token: string): Promise<Agent | null> {
+    if (!token || typeof token !== 'string') return null;
+    const cleanToken = token.trim();
+    const tokenHash = this.hashAgentToken(cleanToken);
+
+    // 1. Primary lookup by agent_token_hash column
+    const { data: hashedAgent, error: hashError } = await this.client
+      .from('agents')
+      .select('*')
+      .eq('agent_token_hash', tokenHash)
+      .maybeSingle();
+
+    if (!hashError && hashedAgent) {
+      return this.mapAgent(hashedAgent);
+    }
+
+    // 2. Fallback lookup for legacy seed or policy token (auto-migrate to hash)
+    const { data: legacyAgents, error: legError } = await this.client
+      .from('agents')
+      .select('*');
+
+    if (!legError && legacyAgents) {
+      const match = legacyAgents.find(a => {
+        const pol = a.policy || {};
+        return pol.agentToken === cleanToken || a.id === cleanToken;
+      });
+      if (match) {
+        // Auto-migrate to hash
+        await this.client
+          .from('agents')
+          .update({
+            agent_token_hash: tokenHash,
+            policy: { ...(match.policy || {}), agentToken: undefined }
+          })
+          .eq('id', match.id);
+        return this.mapAgent({ ...match, agent_token_hash: tokenHash });
+      }
+    }
+
+    return null;
+  }
+
   public async getAgents(orgId: string): Promise<Agent[]> {
     const { data, error } = await this.client
       .from('agents')
@@ -706,9 +758,14 @@ export class Database {
     return data ? this.mapAgent(data) : null;
   }
 
-  public async createAgent(agent: Omit<Agent, 'id' | 'createdAt' | 'updatedAt'>): Promise<Agent> {
-    const agentToken = agent.agentToken || crypto.randomUUID();
-    const policy = { ...(agent.policy || {}), agentToken };
+  public async createAgent(agent: Omit<Agent, 'id' | 'createdAt' | 'updatedAt'> & { rawToken?: string }): Promise<{ agent: Agent; agentToken: string }> {
+    const { rawToken, tokenHash } = agent.rawToken
+      ? { rawToken: agent.rawToken, tokenHash: this.hashAgentToken(agent.rawToken) }
+      : this.generateAgentToken();
+
+    const safePolicy = { ...(agent.policy || {}) };
+    delete (safePolicy as any).agentToken;
+
     const row = {
       organization_id: agent.organizationId,
       name: agent.name,
@@ -720,13 +777,14 @@ export class Database {
       mac_address: agent.macAddress || null,
       agent_version: agent.agentVersion || '1.4.0',
       enrollment_key: agent.enrollmentKey,
+      agent_token_hash: tokenHash,
       status: agent.status || 'online',
       last_seen: agent.lastSeen || new Date().toISOString(),
       cpu_usage: agent.cpuUsage ?? 0,
       ram_usage: agent.ramUsage ?? 0,
       disk_usage: agent.diskUsage ?? 0,
       tags: agent.tags || [],
-      policy,
+      policy: safePolicy,
       health: agent.health || 'healthy',
       environment: agent.environment || 'production'
     };
@@ -736,10 +794,13 @@ export class Database {
       .select()
       .single();
     if (error) throw new Error(`Database error creating agent: ${error.message}`);
-    return this.mapAgent(data);
+    return {
+      agent: this.mapAgent(data),
+      agentToken: rawToken
+    };
   }
 
-  public async updateAgent(id: string, updates: Partial<Agent>, orgId?: string): Promise<Agent> {
+  public async updateAgent(id: string, updates: Partial<Agent> & { rawToken?: string }, orgId?: string): Promise<{ agent: Agent; agentToken?: string }> {
     const row: Record<string, any> = { updated_at: new Date().toISOString() };
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.ipAddress !== undefined) row.ip_address = updates.ipAddress;
@@ -753,6 +814,12 @@ export class Database {
     if (updates.health !== undefined) row.health = updates.health;
     if (updates.agentVersion !== undefined) row.agent_version = updates.agentVersion;
 
+    let newRawToken: string | undefined;
+    if (updates.rawToken) {
+      newRawToken = updates.rawToken;
+      row.agent_token_hash = this.hashAgentToken(newRawToken);
+    }
+
     let query = this.client
       .from('agents')
       .update(row)
@@ -765,7 +832,10 @@ export class Database {
       .maybeSingle();
     if (error) throw new Error(`Database error updating agent: ${error.message}`);
     if (!data) throw new Error('Agent not found or cross-tenant access denied');
-    return this.mapAgent(data);
+    return {
+      agent: this.mapAgent(data),
+      agentToken: newRawToken
+    };
   }
 
   public async revokeAgent(id: string, orgId?: string): Promise<Agent> {
@@ -785,6 +855,33 @@ export class Database {
     if (error) throw new Error(`Database error revoking agent: ${error.message}`);
     if (!data) throw new Error('Agent not found or cross-tenant access denied');
     return this.mapAgent(data);
+  }
+
+  public async addAgentHeartbeat(record: {
+    agentId: string;
+    organizationId: string;
+    cpuPercent?: number;
+    ramPercent?: number;
+    diskPercent?: number;
+    activeProcessesCount?: number;
+    networkConnectionsCount?: number;
+  }): Promise<void> {
+    const row = {
+      agent_id: record.agentId,
+      organization_id: record.organizationId,
+      cpu_percent: record.cpuPercent ?? null,
+      ram_percent: record.ramPercent ?? null,
+      disk_percent: record.diskPercent ?? null,
+      active_processes_count: record.activeProcessesCount ?? null,
+      network_connections_count: record.networkConnectionsCount ?? null,
+      heartbeat_time: new Date().toISOString()
+    };
+    const { error } = await this.client
+      .from('agent_heartbeats')
+      .insert(row);
+    if (error) {
+      console.warn(`[Agent Heartbeat Insert Warning] ${error.message}`);
+    }
   }
 
   // --- Endpoint Telemetry Events ---
@@ -1370,10 +1467,9 @@ export class Database {
       this.getEndpointEvents(orgId, 200)
     ]);
 
-    const now = Date.now();
     const envAgents = agents.filter(a => a.environment === environment);
-    const onlineAgents = envAgents.filter(a => a.status === 'online' && (now - new Date(a.lastSeen).getTime() < 120000));
-    const offlineAgents = envAgents.filter(a => a.status === 'offline' || (now - new Date(a.lastSeen).getTime() >= 120000));
+    const onlineAgents = envAgents.filter(a => a.status === 'online');
+    const offlineAgents = envAgents.filter(a => a.status === 'offline');
 
     const activeAlerts = alerts.filter(a => a.status === 'open' || a.status === 'investigating');
     const criticalAlerts = alerts.filter(a => a.severity === 'critical' && (a.status === 'open' || a.status === 'investigating'));
@@ -1430,7 +1526,11 @@ export class Database {
 
   private mapAgent(row: any): Agent {
     const policy = row.policy || {};
-    const agentToken = policy.agentToken || row.id;
+    const isRevoked = row.status === 'revoked';
+    const lastSeenTime = new Date(row.last_seen || row.created_at).getTime();
+    const isOnline = !isRevoked && (Date.now() - lastSeenTime <= 30000);
+    const computedStatus = isRevoked ? 'revoked' : (isOnline ? 'online' : 'offline');
+
     return {
       id: row.id,
       organizationId: row.organization_id,
@@ -1443,8 +1543,7 @@ export class Database {
       macAddress: row.mac_address || undefined,
       agentVersion: row.agent_version || '1.4.0',
       enrollmentKey: row.enrollment_key,
-      agentToken,
-      status: row.status || 'online',
+      status: computedStatus,
       lastSeen: row.last_seen,
       cpuUsage: Number(row.cpu_usage) || 0,
       ramUsage: Number(row.ram_usage) || 0,

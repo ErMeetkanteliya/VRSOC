@@ -406,23 +406,42 @@ async function runRbacVerification() {
     // TEST 11: Agent telemetry ingestion is strictly organization-bound
     // -------------------------------------------------------------------------
     try {
-      // Ingest telemetry with Agent B's token
-      const telemRes = await fetch(`${BASE_URL}/api/agent/telemetry`, {
+      // Enroll agent in Org B to get valid agent token
+      const enrollRes = await fetch(`${BASE_URL}/api/agent/enroll`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agentId: agentB.id,
-          agentToken: agentB.agentToken,
+          enrollmentKey: orgB.vrSocKey,
+          hostname: 'stone-workstation-rbac',
+          os: 'Windows 11',
+          osVersion: '23H2',
+          architecture: 'x64',
+          ipAddress: '10.20.30.40',
+          agentVersion: '1.4.0'
+        })
+      });
+      const enrollData = await enrollRes.json();
+      const enrolledAgentToken = enrollData.agentToken;
+      const enrolledAgentId = enrollData.agent?.id || agentB.id;
+
+      // Ingest telemetry with Agent B's token
+      const telemRes = await fetch(`${BASE_URL}/api/agent/telemetry`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${enrolledAgentToken}`
+        },
+        body: JSON.stringify({
+          agentId: enrolledAgentId,
           eventType: 'process',
           severity: 'info',
           data: { action: 'HEARTBEAT_TEST' }
         })
       });
-      const data = await telemRes.json();
 
       // Verify event was saved under Org B
-      const eventsB = await db.getEndpointEvents(orgB.id, 10, agentB.id);
-      const eventsA = await db.getEndpointEvents(orgA.id, 10, agentB.id);
+      const eventsB = await db.getEndpointEvents(orgB.id, 10, enrolledAgentId);
+      const eventsA = await db.getEndpointEvents(orgA.id, 10, enrolledAgentId);
 
       if (telemRes.status === 201 && eventsB.length > 0 && eventsA.length === 0) {
         record(11, 'Agent telemetry ingestion strictly scoped to agent enrolled organization', 'PASS', `Ingested in Org B (${eventsB.length}), 0 in Org A`);

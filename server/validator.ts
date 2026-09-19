@@ -104,16 +104,16 @@ export const agentEnrollSchema = z.object({
 });
 
 export const agentHeartbeatSchema = z.object({
-  agentId: z.string().trim().min(1, 'Missing agent credentials').max(100),
-  agentToken: z.string().trim().min(1, 'Missing agent credentials').max(100),
+  agentId: z.string().trim().max(100).optional(),
+  agentToken: z.string().trim().max(128).optional(),
   cpuUsage: z.number().min(0).max(100).optional(),
   ramUsage: z.number().min(0).max(100).optional(),
   diskUsage: z.number().min(0).max(100).optional()
 });
 
 export const agentTelemetrySchema = z.object({
-  agentId: z.string().trim().min(1, 'Missing agent credentials').max(100),
-  agentToken: z.string().trim().min(1, 'Missing agent credentials').max(100),
+  agentId: z.string().trim().max(100).optional(),
+  agentToken: z.string().trim().max(128).optional(),
   eventType: z.enum(['process', 'file', 'network', 'auth', 'dns', 'registry', 'service', 'usb']).optional(),
   severity: z.enum(['info', 'low', 'medium', 'high', 'critical']).optional(),
   data: z.record(z.any()).optional()
