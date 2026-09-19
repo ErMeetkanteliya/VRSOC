@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { Alert, Incident, db } from './db';
+import { Alert, Incident, db, EndpointEvent } from './db';
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -104,40 +104,41 @@ ${JSON.stringify(context, null, 2)}`;
     }
   }
 
-  // Deterministic grounded analysis strictly based on telemetry
+  // Deterministic grounded analysis strictly based on actual telemetry
   const confirmed: string[] = [];
-  alert.evidence.forEach(ev => {
-    confirmed.push(`[${ev.type}] ${ev.description} at ${ev.timestamp}`);
-  });
-  if (confirmed.length === 0) {
-    confirmed.push(`Rule ${alert.ruleId} condition satisfied for ${alert.hostname}.`);
+  if (alert.evidence && alert.evidence.length > 0) {
+    alert.evidence.forEach(ev => {
+      confirmed.push(`[${ev.type}] ${ev.description} (Timestamp: ${ev.timestamp})`);
+    });
+  } else {
+    confirmed.push(`Detection Rule ${alert.ruleId} condition satisfied on host '${alert.hostname || 'Unknown'}'.`);
   }
 
   const inferred: string[] = [
-    `Calculated risk score of ${alert.riskScore}/100 based on severity '${alert.severity}' and category '${alert.mitreTactic}'.`,
-    alert.username ? `Activity attributed to authenticated account context '${alert.username}'.` : 'Activity ran under system context or unauthenticated network probe.'
+    `Calculated risk score of ${alert.riskScore}/100 based on severity '${alert.severity}' and category '${alert.mitreTactic || 'General Detection'}'.`,
+    alert.username ? `Activity attributed to account context '${alert.username}'.` : 'Activity ran under system context or unauthenticated network probe.'
   ];
 
   const unknowns: string[] = [
-    alert.sourceIp ? `External threat actor identity behind IP ${alert.sourceIp} is not confirmed.` : 'Originating network IP address was not captured in this event schema.',
-    'Whether lateral movement or secondary persistence was attempted requires endpoint inspection.'
+    alert.sourceIp ? `Threat actor infrastructure behind IP ${alert.sourceIp} is not confirmed.` : 'Originating source network IP address was not captured in this event schema.',
+    'Whether secondary persistence or lateral movement occurred requires active endpoint triage.'
   ];
 
   const investigationSteps = [
-    `Inspect endpoint ${alert.hostname} active processes and established socket connections.`,
-    `Review authentication logs around ${alert.createdAt} for unusual logon origins.`,
-    `Cross-reference MITRE technique ${alert.mitreId} (${alert.mitreTechnique}) against threat intelligence indicators.`
+    `Inspect endpoint '${alert.hostname || 'host'}' active processes and socket connections.`,
+    `Review authentication and process logs around ${alert.createdAt} for anomalous activity.`,
+    alert.mitreId ? `Cross-reference MITRE technique ${alert.mitreId} (${alert.mitreTechnique}) against active threat intelligence indicators.` : 'Inspect related detection rules.'
   ];
 
   const containmentSteps = [
-    `If anomalous behavior continues, isolate host ${alert.hostname} from the network.`,
-    alert.username ? `Suspend or force password reset on user account '${alert.username}'.` : 'Verify service accounts associated with the triggering process.'
+    `If anomalous execution is verified, isolate host '${alert.hostname || 'endpoint'}' from the network segment.`,
+    alert.username ? `Temporarily suspend or rotate credentials for user account '${alert.username}'.` : 'Verify service accounts associated with the triggering process.'
   ];
 
   const recoverySteps = [
     'Terminate any malicious spawned child PIDs.',
-    'Validate file system integrity and remove unauthorized autostart persistence.',
-    'Conduct post-incident retrospective and update detection rule exclusions if false positive.'
+    'Verify file system integrity and remove unauthorized autostart persistence.',
+    'Conduct post-incident review and update detection rule exclusions if verified false positive.'
   ];
 
   return {
@@ -154,6 +155,7 @@ ${JSON.stringify(context, null, 2)}`;
 
 /**
  * Interactive contextual AI Assistant for SOC analysts.
+ * Retrieves comprehensive, authorized workspace context strictly scoped to orgId.
  */
 export async function chatWithAiAnalyst(
   orgId: string,
@@ -162,53 +164,73 @@ export async function chatWithAiAnalyst(
 ): Promise<string> {
   const client = getAiClient();
 
-  // Gather real context from database strictly scoped to orgId
-  let relevantData = '';
+  // Gather real, authorized PostgreSQL records strictly scoped to orgId
+  let specificContextData = '';
+  let targetedAlert: Alert | null = null;
+  let targetedIncident: Incident | null = null;
+
   if (context?.alertId) {
-    const alert = await db.getAlertById(context.alertId, orgId);
-    if (alert) {
-      relevantData += `CURRENT ALERT CONTEXT:\n${JSON.stringify(alert, null, 2)}\n\n`;
+    targetedAlert = await db.getAlertById(context.alertId, orgId);
+    if (targetedAlert) {
+      specificContextData += `TARGET ALERT DETAILS:\n${JSON.stringify(targetedAlert, null, 2)}\n\n`;
     }
   }
 
   if (context?.incidentId) {
-    const incident = await db.getIncidentById(context.incidentId, orgId);
-    if (incident) {
-      relevantData += `CURRENT INCIDENT CONTEXT:\n${JSON.stringify(incident, null, 2)}\n\n`;
+    targetedIncident = await db.getIncidentById(context.incidentId, orgId);
+    if (targetedIncident) {
+      specificContextData += `TARGET INCIDENT DETAILS:\n${JSON.stringify(targetedIncident, null, 2)}\n\n`;
     }
   }
 
   if (context?.agentId) {
     const agent = await db.getAgentById(context.agentId, orgId);
     if (agent) {
-      relevantData += `CURRENT AGENT HOST CONTEXT:\n${JSON.stringify(agent, null, 2)}\n\n`;
+      const recentEvents = await db.getEndpointEvents(orgId, 5, agent.id);
+      specificContextData += `TARGET ENDPOINT AGENT:\n${JSON.stringify(agent, null, 2)}\nRECENT AGENT TELEMETRY:\n${JSON.stringify(recentEvents, null, 2)}\n\n`;
     }
   }
 
-  if (!relevantData) {
-    const metrics = await db.getRealMetrics(orgId);
-    relevantData = `CURRENT SOC STATE:
-- Enrolled Agents: ${metrics.connectedAgentsCount} (${metrics.onlineAgentsCount} online)
-- Active Alerts: ${metrics.activeAlertsCount} (${metrics.criticalAlertsCount} critical)
-- Open Incidents: ${metrics.openIncidentsCount}
-- Phishing Scans: ${metrics.phishingScansCount} (${metrics.phishingDetectionsCount} detections)
-`;
-  }
+  // Fetch broader authorized workspace dataset for thorough grounding
+  const [metrics, recentAlerts, recentIncidents, agents, recentEvents, rules, phishingScans, iocs] = await Promise.all([
+    db.getRealMetrics(orgId),
+    db.getAlerts(orgId, 'production'),
+    db.getIncidents(orgId, 'production'),
+    db.getAgents(orgId),
+    db.getEndpointEvents(orgId, 10),
+    db.getDetectionRules(orgId),
+    db.getPhishingScans(orgId),
+    db.getIndicators(orgId)
+  ]);
+
+  const workspaceContext = `CURRENT SOC WORKSPACE STATE (Tenant: ${orgId}):
+- Enrolled Agents (${agents.length}): ${agents.map(a => `${a.hostname} [${a.status}]`).join(', ') || 'None'}
+- Active Alerts (${recentAlerts.length}): ${recentAlerts.slice(0, 5).map(a => `${a.id}: ${a.title} (${a.severity.toUpperCase()}, Host: ${a.hostname || 'N/A'})`).join('\n  ') || 'None'}
+- Open Incidents (${recentIncidents.length}): ${recentIncidents.slice(0, 3).map(i => `${i.id}: ${i.title} [${i.status}]`).join('\n  ') || 'None'}
+- Recent Telemetry Events (${recentEvents.length}): ${recentEvents.slice(0, 5).map(e => `${e.eventType} on ${e.data?.hostname || 'host'} at ${e.eventTime}`).join('\n  ') || 'None'}
+- Active Detection Rules (${rules.filter(r => r.enabled).length}): ${rules.filter(r => r.enabled).map(r => r.id).join(', ')}
+- Phishing Scans: ${phishingScans.length}
+- Threat Intel IOCs: ${iocs.length}
+
+${specificContextData}`;
 
   if (client) {
     try {
       const systemInstruction = `You are VRSOC Copilot, a senior Tier-3 SOC analyst and defensive cybersecurity tutor.
-You assist security engineers, analysts, and students in investigating alerts, decoding evidence, mapping MITRE ATT&CK techniques, and formulating containment playbooks.
+You assist security engineers and analysts in investigating real alerts, telemetry events, and incidents.
 
 RULES:
-1. Always ground your answers in the real provided telemetry/context.
-2. Clearly distinguish between CONFIRMED facts, INFERRED hypotheses, and UNKNOWN factors.
-3. Be professional, direct, concise, and educational.
-4. Never invent fake telemetry or claim a breach has occurred without telemetry proof.`;
+1. Ground answers strictly in the real provided PostgreSQL telemetry/context.
+2. Clearly separate findings into:
+   - CONFIRMED: Directly verified by the provided records.
+   - INFERRED: Logical deduction from the verified evidence.
+   - UNKNOWN: Missing information that cannot be determined from the telemetry.
+3. If an alert, IP, host, or user is not in the data, state that it is UNKNOWN rather than fabricating one.
+4. Maintain strict tenant boundary: never discuss or reference data outside this organization.`;
 
       const response = await client.models.generateContent({
         model: 'gemini-3.8-flash',
-        contents: `${systemInstruction}\n\nCONTEXT:\n${relevantData}\n\nANALYST QUESTION:\n${userMessage}`
+        contents: `${systemInstruction}\n\n${workspaceContext}\n\nANALYST QUESTION:\n${userMessage}`
       });
 
       if (response.text) {
@@ -219,11 +241,58 @@ RULES:
     }
   }
 
-  // Fallback analyst response
+  // Deterministic Evidence-Grounded Analyst Assistant Fallback
+  if (targetedAlert) {
+    return `**VRSOC Analyst Assistant (Evidence-Grounded Mode)**
+
+**Alert Investigation: ${targetedAlert.id} - ${targetedAlert.title}**
+- **CONFIRMED Evidence**:
+  - Rule: ${targetedAlert.ruleId} (${targetedAlert.mitreTactic || 'Detection'})
+  - Target Host: ${targetedAlert.hostname || 'Unknown Host'}
+  - Severity / Risk: ${targetedAlert.severity.toUpperCase()} (Risk Score: ${targetedAlert.riskScore}/100)
+  - Logged Timestamp: ${targetedAlert.createdAt}
+  - Triggering Telemetry Count: ${targetedAlert.triggerEventIds.length} event(s)
+- **INFERRED Assessment**:
+  - ${targetedAlert.username ? `Activity ran within account context '${targetedAlert.username}'.` : 'Executed under system background context.'}
+- **UNKNOWN Factors**:
+  - ${targetedAlert.sourceIp ? `Threat actor identity behind source IP ${targetedAlert.sourceIp} is unverified.` : 'Originating network IP address not recorded.'}
+  - Full lateral movement scope is unknown until host forensic triage is completed.
+- **Recommended Actions**:
+  1. Review endpoint telemetry in the Logs tab for host '${targetedAlert.hostname || 'endpoint'}'.
+  2. Verify active process tree and parent PID.
+  3. Apply containment procedures if confirmed malicious.`;
+  }
+
+  if (targetedIncident) {
+    return `**VRSOC Analyst Assistant (Evidence-Grounded Mode)**
+
+**Incident Investigation: ${targetedIncident.id} - ${targetedIncident.title}**
+- **CONFIRMED Evidence**:
+  - Priority / Severity: ${targetedIncident.priority} / ${targetedIncident.severity.toUpperCase()}
+  - Current Status: ${targetedIncident.status.toUpperCase()}
+  - Linked Alerts: ${targetedIncident.linkedAlertIds.join(', ') || 'No linked alerts'}
+  - Timeline Events: ${targetedIncident.timeline.length} recorded entry/entries
+  - Tasks: ${targetedIncident.tasks.filter(t => t.completed).length}/${targetedIncident.tasks.length} completed
+- **INFERRED Assessment**:
+  - Investigation scope is actively tracked across ${targetedIncident.linkedAlertIds.length} detection alerts.
+- **UNKNOWN Factors**:
+  - Root cause attribution is currently under investigation by SOC analysts.`;
+  }
+
+  // General workspace summary grounded in real database records
+  const openAlertSummary = recentAlerts.length > 0
+    ? recentAlerts.slice(0, 3).map(a => `- **${a.id}**: ${a.title} [${a.severity.toUpperCase()} / Risk ${a.riskScore}] on host '${a.hostname || 'Unknown'}'`).join('\n')
+    : 'No active security alerts currently open in this workspace.';
+
   return `**VRSOC Analyst Assistant (Evidence-Grounded Mode)**
 
-Based on the verified records currently loaded in your SOC workspace:
-- **Observed Context**: ${context?.alertId ? `Alert ${context.alertId}` : context?.incidentId ? `Incident ${context.incidentId}` : 'Workspace environment'}
-- **Confirmed Evidence**: All detections are validated against active detection rules without synthetic placeholders.
-- **Recommended Action**: Review the latest telemetry in the Logs tab, verify whether host processes correlate with the alert timestamp, and follow defensive containment procedures.`;
+**Current Workspace Status (${orgId}):**
+- **Connected Fleet**: ${metrics.connectedAgentsCount} agents enrolled (${metrics.onlineAgentsCount} online).
+- **CONFIRMED Active Detections**:
+${openAlertSummary}
+- **Open Incidents**: ${metrics.openIncidentsCount} active investigation case(s).
+- **Recent Telemetry**: ${recentEvents.length} endpoint event(s) processed.
+- **UNKNOWN Factors**:
+  - Full scope of external reconnaissance requires continuous telemetry monitoring.
+- **Guidance**: Select any specific Alert or Incident from the left navigation for detailed deep-dive forensics and MITRE playbooks.`;
 }

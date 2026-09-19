@@ -885,6 +885,62 @@ export class Database {
   }
 
   // --- Endpoint Telemetry Events ---
+  public normalizeEndpointEvent(raw: {
+    eventType?: string;
+    eventTime?: string;
+    severity?: string;
+    data?: Record<string, any>;
+    source?: string;
+  }, agent: Agent): Omit<EndpointEvent, 'id' | 'ingestionTime'> {
+    const validEventTypes = ['process', 'file', 'network', 'auth', 'dns', 'registry', 'service', 'usb'] as const;
+    let eventType: 'process' | 'file' | 'network' | 'auth' | 'dns' | 'registry' | 'service' | 'usb' = 'process';
+    if (raw.eventType && validEventTypes.includes(raw.eventType as any)) {
+      eventType = raw.eventType as any;
+    }
+
+    const validSeverities = ['info', 'low', 'medium', 'high', 'critical'] as const;
+    let severity: 'info' | 'low' | 'medium' | 'high' | 'critical' = 'info';
+    if (raw.severity && validSeverities.includes(raw.severity as any)) {
+      severity = raw.severity as any;
+    }
+
+    // Timestamp sanitization: prevent future timestamp spoofing, bounded clock skew (max 5m future, 30d past)
+    const now = Date.now();
+    let sanitizedEventTime = new Date().toISOString();
+    if (raw.eventTime) {
+      const parsedTime = new Date(raw.eventTime).getTime();
+      if (!isNaN(parsedTime) && parsedTime <= now + 300000 && parsedTime >= now - (30 * 86400000)) {
+        sanitizedEventTime = new Date(raw.eventTime).toISOString();
+      }
+    }
+
+    const rawData = raw.data && typeof raw.data === 'object' ? raw.data : {};
+    const normalizedData: Record<string, any> = {
+      ...rawData,
+      hostname: rawData.hostname || agent.hostname || 'Unknown Host',
+      username: rawData.username || rawData.user || null,
+      processName: rawData.processName || rawData.name || null,
+      commandLine: rawData.commandLine || rawData.command || null,
+      sourceIp: rawData.sourceIp || rawData.ip || agent.ipAddress || null,
+      destinationIp: rawData.destinationIp || rawData.destIp || null,
+      destinationPort: rawData.destinationPort || rawData.destPort || null,
+      filePath: rawData.filePath || rawData.path || null,
+      fileHash: rawData.fileHash || rawData.hash || rawData.sha256 || null
+    };
+
+    return {
+      organizationId: agent.organizationId,
+      agentId: agent.id,
+      eventType,
+      eventTime: sanitizedEventTime,
+      source: raw.source || 'vrsoc-agent',
+      environment: agent.environment || 'production',
+      severity,
+      data: normalizedData,
+      schemaVersion: '1.0'
+    };
+  }
+
   public async addEndpointEvent(event: Omit<EndpointEvent, 'id' | 'ingestionTime'>): Promise<EndpointEvent> {
     const row = {
       organization_id: event.organizationId,
@@ -1230,6 +1286,38 @@ export class Database {
 
     const updated = await this.getIncidentById(id, orgId);
     if (!updated) throw new Error('Incident not found after update');
+    return updated;
+  }
+
+  public async linkAlertToIncident(incidentId: string, alertId: string, orgId?: string): Promise<Incident> {
+    const inc = await this.getIncidentById(incidentId, orgId);
+    if (!inc) throw new Error('Incident not found or cross-tenant access denied');
+
+    const alert = await this.getAlertById(alertId, orgId);
+    if (!alert) throw new Error('Alert not found or cross-tenant access denied');
+
+    // Upsert incident_alert link
+    await this.client
+      .from('incident_alerts')
+      .upsert({
+        incident_id: incidentId,
+        alert_id: alertId
+      }, { onConflict: 'incident_id,alert_id' });
+
+    // Add timeline entry
+    await this.client
+      .from('incident_timeline')
+      .insert({
+        incident_id: incidentId,
+        event_title: `Correlated Alert: ${alert.title}`,
+        event_description: `Alert ${alertId} (${alert.severity.toUpperCase()} / Risk ${alert.riskScore}) automatically correlated to this incident investigation.`,
+        event_type: 'alert',
+        evidence_state: 'CONFIRMED',
+        event_timestamp: new Date().toISOString()
+      });
+
+    const updated = await this.getIncidentById(incidentId, orgId);
+    if (!updated) throw new Error('Incident not found after linking alert');
     return updated;
   }
 

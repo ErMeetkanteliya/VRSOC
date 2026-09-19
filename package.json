@@ -13,6 +13,7 @@
     "verify:rbac": "tsx scripts/verify-rbac.ts",
     "verify:security": "tsx scripts/verify-api-security.ts",
     "verify:agent": "tsx scripts/verify-agent-security.ts",
+    "verify:pipeline": "tsx scripts/verify-telemetry-pipeline.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

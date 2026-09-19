@@ -112,7 +112,7 @@ async function runRbacVerification() {
     const existingAgentsB = await db.getAgents(orgB.id);
     let agentB = existingAgentsB[0];
     if (!agentB) {
-      agentB = await db.createAgent({
+      const createdB = await db.createAgent({
         organizationId: orgB.id,
         name: 'Stone-Host-01',
         hostname: 'stone-workstation',
@@ -132,6 +132,7 @@ async function runRbacVerification() {
         health: 'healthy',
         environment: 'production'
       });
+      agentB = createdB.agent;
     }
 
     const existingAlertsB = await db.getAlerts(orgB.id);

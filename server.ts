@@ -604,33 +604,33 @@ app.post(
         return res.status(403).json({ error: 'Agent credential does not match requested agent ID' });
       }
 
-      // Timestamp sanitization: prevent future timestamp spoofing
-      const now = Date.now();
-      let sanitizedEventTime = new Date().toISOString();
-      if (eventTime) {
-        const parsedTime = new Date(eventTime).getTime();
-        if (!isNaN(parsedTime) && parsedTime <= now + 300000 && parsedTime >= now - (30 * 86400000)) {
-          sanitizedEventTime = new Date(eventTime).toISOString();
-        }
+      // Normalize event using canonical normalization layer
+      const normalized = db.normalizeEndpointEvent({
+        eventType,
+        severity,
+        data,
+        eventTime,
+        source: 'vrsoc-agent'
+      }, authenticatedAgent);
+
+      // Persist to PostgreSQL (throws if database fails)
+      const event = await db.addEndpointEvent(normalized);
+
+      // Broadcast SSE events (isolated from persistence)
+      try {
+        broadcastEvent(authenticatedAgent.organizationId, 'new_telemetry', event);
+        broadcastEvent(authenticatedAgent.organizationId, 'new_event', { event });
+      } catch (sseErr) {
+        console.warn('[SSE Broadcast Warning]', sseErr);
       }
 
-      const event = await db.addEndpointEvent({
-        organizationId: authenticatedAgent.organizationId,
-        agentId: authenticatedAgent.id,
-        eventType: eventType || 'process',
-        eventTime: sanitizedEventTime,
-        source: 'vrsoc-agent',
-        environment: authenticatedAgent.environment,
-        severity: severity || 'info',
-        data: data || {},
-        schemaVersion: '1.0'
-      });
-
-      broadcastEvent(authenticatedAgent.organizationId, 'new_telemetry', event);
-      broadcastEvent(authenticatedAgent.organizationId, 'new_event', { event });
-
-      // Evaluate in real-time detection engine
-      const triggeredAlert = await detectionEngine.evaluateEvent(event, authenticatedAgent);
+      // Evaluate in real-time detection engine (isolated from persistence)
+      let triggeredAlert: any = null;
+      try {
+        triggeredAlert = await detectionEngine.evaluateEvent(event, authenticatedAgent);
+      } catch (detErr) {
+        console.error('[Detection Engine Evaluation Error]', detErr);
+      }
 
       res.status(201).json({
         status: 'ingested',
@@ -642,6 +642,11 @@ app.post(
     }
   }
 );
+
+// GET /api/health - Public health status
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // POST /api/telemetry/simulate
 app.post(
@@ -659,7 +664,7 @@ app.post(
       let targetAgent = agentId ? agents.find(a => a.id === agentId) : agents[0];
 
       if (!targetAgent) {
-        targetAgent = await db.createAgent({
+        const created = await db.createAgent({
           organizationId: org.id,
           name: 'Workstation SOC-Primary',
           hostname: 'vrsoc-workstation-01',
@@ -679,6 +684,7 @@ app.post(
           health: 'healthy',
           environment: 'production'
         });
+        targetAgent = created.agent;
       }
 
       let eventType: 'process' | 'auth' | 'network' | 'usb' | 'file' = 'process';
