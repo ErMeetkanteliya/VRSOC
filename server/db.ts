@@ -454,6 +454,7 @@ export class Database {
 
   // --- Organizations ---
   public async getOrganizationById(id: string): Promise<Organization | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
     const { data, error } = await this.client
       .from('organizations')
       .select('*')
@@ -508,6 +509,7 @@ export class Database {
 
   // --- Profiles & Memberships ---
   public async getProfileById(id: string): Promise<Profile | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
     const { data, error } = await this.client
       .from('profiles')
       .select('*')
@@ -691,6 +693,7 @@ export class Database {
   }
 
   public async getAgentById(id: string, orgId?: string): Promise<Agent | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
     let query = this.client
       .from('agents')
       .select('*')
@@ -1240,6 +1243,7 @@ export class Database {
   }
 
   public async getPhishingScanById(id: string, orgId?: string): Promise<PhishingScan | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
     let query = this.client
       .from('phishing_scans')
       .select('*')
@@ -1343,6 +1347,7 @@ export class Database {
   }
 
   public async getReportById(id: string, orgId?: string): Promise<Report | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) && !id.startsWith('REP-')) return null;
     let query = this.client
       .from('reports')
       .select('*')
